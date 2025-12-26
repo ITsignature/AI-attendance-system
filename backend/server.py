@@ -104,7 +104,7 @@ class User(BaseModel):
     position: Optional[str] = None
     basic_salary: float = 0.0
     allowances: float = 0.0
-    join_date: str
+    join_date: Optional[str] = None
     profile_pic: Optional[str] = None
     start_time: Optional[str] = None
     finish_time: Optional[str] = None
