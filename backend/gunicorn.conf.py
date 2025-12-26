@@ -1,0 +1,15 @@
+bind = '0.0.0.0:8000'
+# user = 'www'
+workers = 1
+threads = 2
+backlog = 512
+daemon = False
+chdir = '/www/wwwroot/AI-attendance-system/backend'
+access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s" "%(a)s"'
+loglevel = 'info'
+#worker_class = 'geventwebsocket.gunicorn.workers.GeventWebSocketWorker'
+worker_class = "uvicorn.workers.UvicornWorker"
+errorlog = chdir + '/logs/error.log'
+accesslog = chdir + '/logs/access.log'
+pidfile = chdir + '/logs/al-attendance.pid'
+pythonpath = '/www/wwwroot/AI-attendance-system/backend'
