@@ -313,7 +313,7 @@ export default function SuperAdminCompanyDetail() {
                 </div>
                 <div className="text-sm text-gray-600 p-3 bg-gray-50 rounded border">
                   <strong>Message Preview:</strong>
-                  <p className="mt-1">Your company portal: {company?.name}. Login with mobile {selectedAdmin.mobile} at: https://paystack-app.preview.emergentagent.com</p>
+                  <p className="mt-1">Your company portal: {company?.name}. Login with mobile {selectedAdmin.mobile} at: https://admin-sms-portal.preview.emergentagent.com</p>
                 </div>
               </div>
             )}
@@ -475,7 +475,6 @@ export default function SuperAdminCompanyDetail() {
           </CardContent>
         </Card>
 
-
         {/* Location Tracking Module */}
         <Card>
           <CardContent className="pt-6">
@@ -514,7 +513,6 @@ export default function SuperAdminCompanyDetail() {
             )}
           </CardContent>
         </Card>
-
 
         {/* SMS Configuration */}
         <Card>

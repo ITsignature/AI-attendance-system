@@ -15,6 +15,7 @@ import jwt
 import random
 import requests
 from passlib.context import CryptContext
+import pytz
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -103,7 +104,7 @@ class User(BaseModel):
     position: Optional[str] = None
     basic_salary: float = 0.0
     allowances: float = 0.0
-    join_date: Optional[str] = None
+    join_date: str
     profile_pic: Optional[str] = None
     start_time: Optional[str] = None
     finish_time: Optional[str] = None
@@ -112,6 +113,7 @@ class User(BaseModel):
     custom_end_time: Optional[str] = None
     ot_allowed: bool = False
     sms_notifications: bool = False
+    fingerprint_id: Optional[str] = None
     is_active: bool = True
     can_full_access_companies: bool = False  # For super admins: allow full edit access when viewing company portals
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -129,6 +131,7 @@ class UserCreate(BaseModel):
     start_time: Optional[str] = None
     finish_time: Optional[str] = None
     fixed_salary: Optional[bool] = False
+    fingerprint_id: Optional[str] = None
 
 
 class BulkEmployeeParsed(BaseModel):
@@ -560,16 +563,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 raise HTTPException(status_code=401, detail="User not found")
             return User(**user)
     except jwt.ExpiredSignatureError:
-        logging.error("Token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError as e:
-        logging.error(f"Invalid JWT token: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
     except Exception as e:
         logging.error(f"Token validation error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=401, detail=f"Token validation error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 async def log_activity(company_id: str, user_id: str, user_name: str, action: str, details: str):
     log = ActivityLog(
@@ -592,16 +589,7 @@ async def send_otp(request: OTPRequest):
         raise HTTPException(status_code=404, detail="User not found")
     
     otp_code = str(random.randint(100000, 999999))
-
-    # Log OTP to console for development/testing
-    logging.info(f"=" * 60)
-    logging.info(f"OTP for mobile {request.mobile}: {otp_code}")
-    logging.info(f"=" * 60)
-    print(f"\n{'='*60}")
-    print(f"OTP CODE: {otp_code}")
-    print(f"Mobile: {request.mobile}")
-    print(f"{'='*60}\n")
-
+    
     otp_doc = {
         "mobile": request.mobile,
         "otp": otp_code,
@@ -610,7 +598,7 @@ async def send_otp(request: OTPRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.otps.insert_one(otp_doc)
-
+    
     # Send SMS - LOGIN OTP always uses system-wide gateway (not company-specific)
     message = f"Your OTP for IT Signature ERP is: {otp_code}. Valid for 5 minutes."
     sms_sent = send_sms(request.mobile, message, None)  # None = use default system gateway
@@ -751,7 +739,7 @@ async def create_company(company: CompanyCreate, current_user: User = Depends(ge
     await db.users.insert_one(admin_user.model_dump())
     
     # Send SMS
-    message = f"Welcome to IT Signature ERP! Your company '{company.name}' has been created. Login with mobile {company.admin_mobile}. URL: https://paystack-app.preview.emergentagent.com"
+    message = f"Welcome to IT Signature ERP! Your company '{company.name}' has been created. Login with mobile {company.admin_mobile}. URL: https://admin-sms-portal.preview.emergentagent.com"
     send_sms(company.admin_mobile, message)
     
     await log_activity("SUPER_ADMIN", current_user.id, current_user.name, "CREATE_COMPANY", f"Created company: {company.name}")
@@ -858,7 +846,7 @@ async def resend_company_url(company_id: str, admin_id: str, current_user: User 
         raise HTTPException(status_code=404, detail="Admin not found")
     
     # Send SMS using default system gateway (same as OTP)
-    message = f"Your company portal: {company['name']}. Login with mobile {admin['mobile']} at: https://paystack-app.preview.emergentagent.com"
+    message = f"Your company portal: {company['name']}. Login with mobile {admin['mobile']} at: https://admin-sms-portal.preview.emergentagent.com"
     sms_sent = send_sms(admin['mobile'], message, None)  # None = use default system gateway
     
     if not sms_sent:
@@ -4811,6 +4799,112 @@ async def mark_attendance_with_location(attendance_data: AttendanceWithLocation,
     )
     
     return {"message": "Attendance marked with location", "attendance": attendance_response}
+
+@api_router.get("/attendance/fingerprint/{fingerprint_id}")
+async def mark_attendance_by_fingerprint(fingerprint_id: str):
+    """
+    Mark attendance using fingerprint ID (no authentication required)
+    - If no attendance for today: Mark check-in
+    - If attendance exists without check-out and >10 minutes passed: Mark check-out
+    """
+    
+    # Find user by fingerprint_id
+    user = await db.users.find_one({"fingerprint_id": fingerprint_id}, {"_id": 0})
+    
+    if not user:
+        return {"success": False, "message": "No User"}
+    
+    # Get current time in Sri Lanka timezone (UTC+5:30)
+    sri_lanka_tz = pytz.timezone('Asia/Colombo')
+    current_time_lk = datetime.now(sri_lanka_tz)
+    today = current_time_lk.strftime("%Y-%m-%d")
+    current_time_str = current_time_lk.strftime("%H:%M")
+    
+    # For time comparison, use UTC
+    current_time_utc = datetime.now(timezone.utc)
+    
+    # Check if attendance record exists for today
+    attendance = await db.attendance.find_one({
+        "company_id": user.get("company_id"),
+        "employee_id": user["id"],
+        "date": today
+    }, {"_id": 0})
+    
+    if not attendance:
+        # No attendance for today - Mark check-in
+        check_in_datetime = f"{today}T{current_time_str}:00"
+        
+        new_attendance = {
+            "id": str(uuid.uuid4()),
+            "company_id": user.get("company_id"),
+            "employee_id": user["id"],
+            "employee_name": capitalize_name(user["name"]),
+            "date": today,
+            "check_in": check_in_datetime,
+            "check_out": None,
+            "status": "present",
+            "leave_type": "",
+            "created_by": user["id"],  # Self-marked via fingerprint
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.attendance.insert_one(new_attendance)
+        
+        return {
+            "success": True,
+            "message": f"Attendance Success - {capitalize_name(user['name'])}",
+            "action": "check_in",
+            "time": current_time_str
+        }
+    
+    else:
+        # Attendance exists - Check if we should mark check-out
+        if attendance.get("check_out"):
+            # Already has check-out
+            return {
+                "success": False,
+                "message": f"Attendance already completed for {capitalize_name(user['name'])} today"
+            }
+        
+        # Parse check-in time to verify 10-minute difference
+        check_in_str = attendance.get("check_in", "")
+        if check_in_str:
+            try:
+                # Parse check_in datetime (format: "2025-12-26T09:30:00")
+                # The stored time is in Sri Lanka timezone (naive datetime)
+                check_in_dt = datetime.fromisoformat(check_in_str)
+                
+                # Make it timezone-aware in Sri Lanka timezone
+                if check_in_dt.tzinfo is None:
+                    check_in_dt = sri_lanka_tz.localize(check_in_dt)
+                
+                # Calculate time difference using Sri Lanka timezone
+                time_diff = (current_time_lk - check_in_dt).total_seconds() / 60  # in minutes
+                
+                if time_diff < 10:
+                    return {
+                        "success": False,
+                        "message": f"Please wait {int(10 - time_diff)} more minutes before marking leaving"
+                    }
+                
+            except Exception as e:
+                print(f"Error parsing check_in time: {e}")
+                # Continue to mark check-out even if parsing fails
+        
+        # Mark check-out
+        check_out_datetime = f"{today}T{current_time_str}:00"
+        
+        await db.attendance.update_one(
+            {"id": attendance["id"]},
+            {"$set": {"check_out": check_out_datetime}}
+        )
+        
+        return {
+            "success": True,
+            "message": f"Leaving Marked Success - {capitalize_name(user['name'])}",
+            "action": "check_out",
+            "time": current_time_str
+        }
 
 @api_router.get("/location/tracking/history")
 async def get_tracking_history(

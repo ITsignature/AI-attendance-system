@@ -38,6 +38,7 @@ export default function Employees() {
     start_time: '09:00',
     finish_time: '17:00',
     fixed_salary: false,
+    fingerprint_id: '',
     profile_picture: null
   });
   
@@ -253,6 +254,7 @@ export default function Employees() {
       start_time: employee.start_time || defaultTimes.start_time,
       finish_time: employee.finish_time || defaultTimes.finish_time,
       fixed_salary: employee.fixed_salary || false,
+      fingerprint_id: employee.fingerprint_id || '',
       profile_picture: null
     });
     setDialogOpen(true);
@@ -273,10 +275,10 @@ export default function Employees() {
       start_time: defaultTimes.start_time,
       finish_time: defaultTimes.finish_time,
       fixed_salary: false,
+      fingerprint_id: '',
       profile_picture: null
     });
   };
-
 
   // Bulk import functions
   const handleParseBulk = async () => {
@@ -670,6 +672,21 @@ export default function Employees() {
                       />
                     </div>
                   </div>
+                  {editingEmployee && (
+                    <div className="sm:col-span-2 grid grid-cols-12 gap-2">
+                      <label className="col-span-3 text-sm font-medium flex items-center">Fingerprint ID</label>
+                      <div className="col-span-9">
+                        <Input
+                          data-testid="fingerprint-id-input"
+                          value={formData.fingerprint_id}
+                          onChange={(e) => setFormData({ ...formData, fingerprint_id: e.target.value.replace(/\D/g, '') })}
+                          placeholder="Enter numeric fingerprint ID"
+                          type="text"
+                          inputMode="numeric"
+                        />
+                      </div>
+                    </div>
+                  )}
                   {editingEmployee?.profile_pic && (
                     <div className="sm:col-span-2">
                       <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
@@ -992,10 +1009,7 @@ export default function Employees() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            setEditingEmployee(employee);
-                            setDialogOpen(true);
-                          }}
+                          onClick={() => handleEdit(employee)}
                           disabled={!canEdit}
                           title={!canEdit ? "Read-only access" : "Edit Employee"}
                           className="disabled:opacity-50 disabled:cursor-not-allowed"
