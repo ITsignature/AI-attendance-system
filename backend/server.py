@@ -49,6 +49,7 @@ class Company(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     contact_number: Optional[str] = None
+    short_code: Optional[str] = None  # Company short code for fingerprint device (max 20 chars)
     status: str = "pending"  # pending, active, suspended
     sms_gateway: str = "textit"
     sms_enabled: bool = False
@@ -811,6 +812,39 @@ async def update_company_sms(company_id: str, sms_settings: SMSSettings, current
     await log_activity("SUPER_ADMIN", current_user.id, current_user.name, "UPDATE_SMS", f"Updated SMS settings for {company['name']}")
     
     return {"message": "SMS settings updated"}
+
+
+@api_router.put("/superadmin/companies/{company_id}/short-code")
+async def update_company_short_code(company_id: str, data: dict, current_user: User = Depends(get_current_user)):
+    """Update company short code for fingerprint attendance"""
+    if current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    short_code = data.get("short_code", "").strip()
+    
+    if not short_code:
+        raise HTTPException(status_code=400, detail="Short code cannot be empty")
+    
+    if len(short_code) > 20:
+        raise HTTPException(status_code=400, detail="Short code must be max 20 characters")
+    
+    # Check if short code already exists for another company
+    existing = await db.companies.find_one({"short_code": short_code, "id": {"$ne": company_id}})
+    if existing:
+        raise HTTPException(status_code=400, detail="This short code is already in use by another company")
+    
+    result = await db.companies.update_one(
+        {"id": company_id},
+        {"$set": {"short_code": short_code}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    company = await db.companies.find_one({"id": company_id}, {"_id": 0})
+    await log_activity("SUPER_ADMIN", current_user.id, current_user.name, "UPDATE_SHORT_CODE", f"Updated short code for {company['name']} to '{short_code}'")
+    
+    return {"message": "Short code updated successfully"}
 
 @api_router.get("/superadmin/companies/{company_id}/admins")
 async def get_company_admins(company_id: str, current_user: User = Depends(get_current_user)):
@@ -4800,16 +4834,31 @@ async def mark_attendance_with_location(attendance_data: AttendanceWithLocation,
     
     return {"message": "Attendance marked with location", "attendance": attendance_response}
 
-@api_router.get("/attendance/fingerprint/{fingerprint_id}")
-async def mark_attendance_by_fingerprint(fingerprint_id: str):
+@api_router.get("/attendance/fingerprint/{company_short_code}/{fingerprint_id}")
+async def mark_attendance_by_fingerprint(company_short_code: str, fingerprint_id: str):
     """
-    Mark attendance using fingerprint ID (no authentication required)
+    Mark attendance using company short code and fingerprint ID (no authentication required)
+    - company_short_code: Company identifier (max 20 chars)
+    - fingerprint_id: Employee fingerprint ID
     - If no attendance for today: Mark check-in
     - If attendance exists without check-out and >10 minutes passed: Mark check-out
     """
     
-    # Find user by fingerprint_id
-    user = await db.users.find_one({"fingerprint_id": fingerprint_id}, {"_id": 0})
+    # Validate company short code
+    if not company_short_code or company_short_code.strip() == '':
+        return {"success": False, "message": "Missing company short code"}
+    
+    # Find company by short code
+    company = await db.companies.find_one({"short_code": company_short_code}, {"_id": 0})
+    
+    if not company:
+        return {"success": False, "message": "Invalid company short code"}
+    
+    # Find user by fingerprint_id within this specific company
+    user = await db.users.find_one({
+        "fingerprint_id": fingerprint_id,
+        "company_id": company["id"]
+    }, {"_id": 0})
     
     if not user:
         return {"success": False, "message": "No User"}

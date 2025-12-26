@@ -133,6 +133,26 @@ export default function SuperAdminCompanyDetail() {
     }
   };
 
+  const handleSaveShortCode = async () => {
+    try {
+      if (!company.short_code || company.short_code.trim() === '') {
+        toast.error('Please enter a short code');
+        return;
+      }
+      await api.put(`/superadmin/companies/${companyId}/short-code`, {
+        short_code: company.short_code
+      });
+      toast.success('Company short code updated successfully', { 
+        style: { background: '#10b981', color: 'white' } 
+      });
+      fetchCompany();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update short code', {
+        style: { background: '#ef4444', color: 'white' }
+      });
+    }
+  };
+
   const handleStatusChange = async (status) => {
     try {
       await api.put(`/superadmin/companies/${companyId}/status?status=${status}`);
@@ -202,6 +222,27 @@ export default function SuperAdminCompanyDetail() {
                   }>
                     {company?.status}
                   </Badge>
+                </div>
+              </div>
+                            <div>
+                <label className="text-sm font-medium text-gray-600">Company Short Code</label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={company?.short_code || ''}
+                    onChange={(e) => setCompany({ ...company, short_code: e.target.value.slice(0, 20) })}
+                    placeholder="Enter short code (max 20 chars)"
+                    maxLength={20}
+                    className="max-w-xs"
+                  />
+                  <Button 
+                    onClick={handleSaveShortCode} 
+                    size="sm"
+                    variant="outline"
+                    className="bg-blue-50 text-blue-700"
+                  >
+                    <Save className="w-4 h-4 mr-1" />
+                    Save
+                  </Button>
                 </div>
               </div>
               <div>
