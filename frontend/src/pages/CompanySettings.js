@@ -17,6 +17,9 @@ export default function CompanySettings() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState({ date: '', name: '', type: 'public' });
+  const [formData, setFormData] = useState({});
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchSettings();
@@ -27,6 +30,8 @@ export default function CompanySettings() {
     try {
       const response = await api.get('/settings');
       setSettings(response.data);
+      setFormData(response.data); // Initialize form data with fetched settings
+      setHasUnsavedChanges(false); // Reset unsaved changes flag
     } catch (error) {
       toast.error('Failed to fetch settings');
     } finally {
@@ -44,14 +49,28 @@ export default function CompanySettings() {
     }
   };
 
-  const handleUpdateSettings = async (updates) => {
+  const handleFormChange = (updates) => {
+    setFormData(prev => ({ ...prev, ...updates }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
     try {
-      await api.put('/settings', updates);
-      toast.success('Settings updated successfully');
-      fetchSettings();
+      await api.put('/settings', formData);
+      toast.success('Settings saved successfully');
+      setSettings(formData);
+      setHasUnsavedChanges(false);
     } catch (error) {
-      toast.error('Failed to update settings');
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const handleCancelChanges = () => {
+    setFormData(settings);
+    setHasUnsavedChanges(false);
   };
 
   const handleAddHoliday = async (e) => {
@@ -109,14 +128,14 @@ export default function CompanySettings() {
               <Input
                 type="time"
                 placeholder="Start Time"
-                value={settings?.office_start_time || '09:00'}
-                onChange={(e) => handleUpdateSettings({ office_start_time: e.target.value })}
+                value={formData?.office_start_time || '09:00'}
+                onChange={(e) => handleFormChange({ office_start_time: e.target.value })}
               />
               <Input
                 type="time"
                 placeholder="End Time"
-                value={settings?.office_end_time || '17:00'}
-                onChange={(e) => handleUpdateSettings({ office_end_time: e.target.value })}
+                value={formData?.office_end_time || '17:00'}
+                onChange={(e) => handleFormChange({ office_end_time: e.target.value })}
               />
             </div>
           </CardContent>
@@ -134,16 +153,16 @@ export default function CompanySettings() {
                 <p className="text-sm text-gray-600">Include Saturday as a working day</p>
               </div>
               <Switch
-                checked={settings?.saturday_enabled || false}
-                onCheckedChange={(checked) => handleUpdateSettings({ saturday_enabled: checked })}
+                checked={formData?.saturday_enabled || false}
+                onCheckedChange={(checked) => handleFormChange({ saturday_enabled: checked })}
               />
             </div>
 
-            {settings?.saturday_enabled && (
+            {formData?.saturday_enabled && (
               <>
                 <Select
-                  value={settings?.saturday_type || 'full'}
-                  onValueChange={(value) => handleUpdateSettings({ saturday_type: value })}
+                  value={formData?.saturday_type || 'full'}
+                  onValueChange={(value) => handleFormChange({ saturday_type: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Saturday Type" />
@@ -158,14 +177,14 @@ export default function CompanySettings() {
                   <Input
                     type="time"
                     placeholder="Saturday Start Time"
-                    value={settings?.saturday_start_time || '09:00'}
-                    onChange={(e) => handleUpdateSettings({ saturday_start_time: e.target.value })}
+                    value={formData?.saturday_start_time || '09:00'}
+                    onChange={(e) => handleFormChange({ saturday_start_time: e.target.value })}
                   />
                   <Input
                     type="time"
                     placeholder="Saturday End Time"
-                    value={settings?.saturday_end_time || '14:00'}
-                    onChange={(e) => handleUpdateSettings({ saturday_end_time: e.target.value })}
+                    value={formData?.saturday_end_time || '14:00'}
+                    onChange={(e) => handleFormChange({ saturday_end_time: e.target.value })}
                   />
                 </div>
               </>
@@ -361,23 +380,23 @@ export default function CompanySettings() {
                 <div className="col-span-6">
                   <Input
                     placeholder="Company Address"
-                    value={settings?.invoice_address || ''}
-                    onChange={(e) => handleUpdateSettings({ invoice_address: e.target.value })}
+                    value={formData?.invoice_address || ''}
+                    onChange={(e) => handleFormChange({ invoice_address: e.target.value })}
                   />
                 </div>
                 <div className="col-span-3">
                   <Input
                     placeholder="Mobile Number (10 digits)"
-                    value={settings?.invoice_mobile || ''}
-                    onChange={(e) => handleUpdateSettings({ invoice_mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                    value={formData?.invoice_mobile || ''}
+                    onChange={(e) => handleFormChange({ invoice_mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                     maxLength={10}
                   />
                 </div>
                 <div className="col-span-3">
                   <Input
                     placeholder="Hotline (10 digits)"
-                    value={settings?.invoice_hotline || ''}
-                    onChange={(e) => handleUpdateSettings({ invoice_hotline: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                    value={formData?.invoice_hotline || ''}
+                    onChange={(e) => handleFormChange({ invoice_hotline: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                     maxLength={10}
                   />
                 </div>
@@ -389,29 +408,29 @@ export default function CompanySettings() {
                   <div className="col-span-3">
                     <Input
                       placeholder="Bank Name (e.g., Commercial Bank)"
-                      value={settings?.bank_name || ''}
-                      onChange={(e) => handleUpdateSettings({ bank_name: e.target.value })}
+                      value={formData?.bank_name || ''}
+                      onChange={(e) => handleFormChange({ bank_name: e.target.value })}
                     />
                   </div>
                   <div className="col-span-3">
                     <Input
                       placeholder="Account Holder Name"
-                      value={settings?.bank_account_name || ''}
-                      onChange={(e) => handleUpdateSettings({ bank_account_name: e.target.value })}
+                      value={formData?.bank_account_name || ''}
+                      onChange={(e) => handleFormChange({ bank_account_name: e.target.value })}
                     />
                   </div>
                   <div className="col-span-3">
                     <Input
                       placeholder="Bank Account Number"
-                      value={settings?.bank_account_number || ''}
-                      onChange={(e) => handleUpdateSettings({ bank_account_number: e.target.value })}
+                      value={formData?.bank_account_number || ''}
+                      onChange={(e) => handleFormChange({ bank_account_number: e.target.value })}
                     />
                   </div>
                   <div className="col-span-3">
                     <Input
                       placeholder="Branch Name"
-                      value={settings?.bank_branch || ''}
-                      onChange={(e) => handleUpdateSettings({ bank_branch: e.target.value })}
+                      value={formData?.bank_branch || ''}
+                      onChange={(e) => handleFormChange({ bank_branch: e.target.value })}
                     />
                   </div>
                 </div>
@@ -440,6 +459,32 @@ export default function CompanySettings() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* Save and Cancel Buttons - Fixed at bottom */}
+        {hasUnsavedChanges && (
+          <div className="sticky bottom-0 bg-white border-t shadow-lg p-4 flex items-center justify-between gap-4 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+              <span className="text-sm text-gray-600">You have unsaved changes</span>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={handleCancelChanges}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveSettings}
+                disabled={saving}
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </Layout>

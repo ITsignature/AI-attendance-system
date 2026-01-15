@@ -226,6 +226,10 @@ class Customer(BaseModel):
     whatsapp: Optional[str] = None
     city: Optional[str] = None
     address: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    bank_account_holder_name: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     deleted: bool = False
     deleted_at: Optional[str] = None
@@ -262,6 +266,7 @@ class InvoiceItem(BaseModel):
     quantity: float
     unit_price: float
     total: float
+    display_amounts: bool = True  # For estimates: whether to show amounts in view
 
 class Invoice(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -309,6 +314,7 @@ class Estimate(BaseModel):
     total: float
     status: str = "draft"  # draft, sent, accepted, rejected, converted
     notes: Optional[str] = None
+    display_total_amounts: bool = True  # Whether to show amounts in estimate view
     created_by: str
     created_by_name: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -2234,7 +2240,11 @@ async def create_customer(customer_data: dict, current_user: User = Depends(get_
         phone=customer_data.get("phone"),
         whatsapp=customer_data.get("whatsapp"),
         city=customer_data.get("city"),
-        address=customer_data.get("address")
+        address=customer_data.get("address"),
+        bank_name=customer_data.get("bank_name"),
+        bank_branch=customer_data.get("bank_branch"),
+        bank_account_number=customer_data.get("bank_account_number"),
+        bank_account_holder_name=customer_data.get("bank_account_holder_name")
     )
     
     await db.customers.insert_one(customer.model_dump())
@@ -2459,21 +2469,25 @@ async def create_invoice(invoice_data: dict, current_user: User = Depends(get_cu
     # Process items
     items = []
     for item_data in invoice_data["items"]:
+        # Convert quantity and unit_price to proper numeric types
+        quantity = float(item_data["quantity"])
+        unit_price = float(item_data["unit_price"])
+
         item = InvoiceItem(
             product_id=item_data.get("product_id"),
             product_name=item_data["product_name"],
             description=item_data.get("description"),
-            quantity=item_data["quantity"],
-            unit_price=item_data["unit_price"],
-            total=item_data["quantity"] * item_data["unit_price"]
+            quantity=quantity,
+            unit_price=unit_price,
+            total=quantity * unit_price
         )
         items.append(item.model_dump())
-        
+
         # Reduce stock if product_id provided
         if item_data.get("product_id"):
             await db.products.update_one(
                 {"id": item_data["product_id"], "company_id": current_user.company_id},
-                {"$inc": {"stock_quantity": -item_data["quantity"]}}
+                {"$inc": {"stock_quantity": -quantity}}
             )
     
     subtotal = sum([item["total"] for item in items])
@@ -2645,11 +2659,13 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
             description=item_data.get("description"),
             quantity=item_data["quantity"],
             unit_price=item_data["unit_price"],
-            total=item_data["quantity"] * item_data["unit_price"]
+            total=item_data["quantity"] * item_data["unit_price"],
+            display_amounts=item_data.get("display_amounts", True)
         )
         items.append(item.model_dump())
-    
-    subtotal = sum([item["total"] for item in items])
+
+    # Calculate subtotal only for items with display_amounts=True
+    subtotal = sum([item["total"] for item in items if item.get("display_amounts", True)])
     
     estimate = Estimate(
         company_id=current_user.company_id,
@@ -2661,6 +2677,7 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
         subtotal=subtotal,
         total=subtotal,
         notes=estimate_data.get("notes"),
+        display_total_amounts=estimate_data.get("display_total_amounts", True),
         created_by=current_user.id,
         created_by_name=current_user.name
     )
@@ -2682,6 +2699,22 @@ async def get_estimates(include_deleted: bool = False, current_user: User = Depe
     
     estimates = await db.estimates.find(query, {"_id": 0}).sort("created_at", -1).to_list(length=None)
     return estimates
+
+@api_router.get("/estimates/{estimate_id}")
+async def get_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
+    """Get single estimate details"""
+    if current_user.role not in ["admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+
+    estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id}, {"_id": 0})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    # Get customer details
+    customer = await db.customers.find_one({"id": estimate["customer_id"]}, {"_id": 0})
+    estimate["customer"] = customer
+
+    return estimate
 
 @api_router.post("/estimates/{estimate_id}/convert")
 async def convert_estimate_to_invoice(estimate_id: str, current_user: User = Depends(get_current_user)):
@@ -2755,8 +2788,57 @@ async def delete_estimate(estimate_id: str, current_user: User = Depends(get_cur
         }}
     )
     await log_activity(current_user.company_id, current_user.id, current_user.name, "DELETE_ESTIMATE", f"Deleted estimate: {estimate['estimate_number']}")
-    
+
     return {"message": "Estimate deleted successfully"}
+
+@api_router.put("/estimates/{estimate_id}")
+async def update_estimate(estimate_id: str, estimate_data: dict, current_user: User = Depends(get_current_user)):
+    """Update estimate"""
+    if current_user.role not in ["admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+
+    estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    # Process items to calculate totals
+    items = []
+    for item_data in estimate_data.get("items", []):
+        quantity = float(item_data["quantity"])
+        unit_price = float(item_data["unit_price"])
+        item = {
+            "product_id": item_data.get("product_id"),
+            "product_name": item_data["product_name"],
+            "description": item_data.get("description"),
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total": quantity * unit_price,
+            "display_amounts": item_data.get("display_amounts", True)
+        }
+        items.append(item)
+
+    # Calculate subtotal only for items with display_amounts=True
+    subtotal = sum([item["total"] for item in items if item.get("display_amounts", True)])
+
+    update_data = {
+        "customer_id": estimate_data.get("customer_id", estimate["customer_id"]),
+        "estimate_date": estimate_data.get("estimate_date", estimate["estimate_date"]),
+        "valid_until": estimate_data.get("valid_until", estimate["valid_until"]),
+        "items": items,
+        "subtotal": subtotal,
+        "total": subtotal,
+        "notes": estimate_data.get("notes", estimate.get("notes")),
+        "display_total_amounts": estimate_data.get("display_total_amounts", estimate.get("display_total_amounts", True))
+    }
+
+    await db.estimates.update_one(
+        {"id": estimate_id, "company_id": current_user.company_id},
+        {"$set": update_data}
+    )
+
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "UPDATE_ESTIMATE", f"Updated estimate: {estimate['estimate_number']}")
+
+    return {"message": "Estimate updated successfully"}
 
 @api_router.put("/estimates/{estimate_id}/restore")
 async def restore_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):

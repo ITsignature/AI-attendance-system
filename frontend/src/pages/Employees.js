@@ -71,6 +71,10 @@ export default function Employees() {
   const [sortField, setSortField] = useState('name'); // 'name', 'mobile', 'position', 'salary', 'role'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
 
+  // Delete employee state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [employeeToDelete, setEmployeeToDelete] = useState(null);
+
   // Check if user can edit (not read-only impersonation)
   const canEdit = !isImpersonating() || canEditInImpersonation();
 
@@ -497,7 +501,7 @@ export default function Employees() {
             )}
             
             {/* Bulk Import Button */}
-            <Button
+            {/* <Button
               variant="outline"
               onClick={() => setBulkImportDialogOpen(true)}
               disabled={!canEdit}
@@ -505,7 +509,7 @@ export default function Employees() {
               className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload className="w-4 h-4" />
-            </Button>
+            </Button> */}
             
             {/* View Failed Imports Button */}
             {failedImports.length > 0 && (
@@ -1482,6 +1486,48 @@ Operation Manager       Anjali  anjali@gmail.com        0760094691      2023/04/
                 </div>
               </>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Employee</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {employeeToDelete?.name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setEmployeeToDelete(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (employeeToDelete) {
+                  try {
+                    await api.delete(`/employees/${employeeToDelete.id}`);
+                    toast.success('Employee deleted successfully');
+                    fetchEmployees();
+                    setDeleteDialogOpen(false);
+                    setEmployeeToDelete(null);
+                  } catch (error) {
+                    console.error('Error deleting employee:', error);
+                    toast.error(error.response?.data?.detail || 'Failed to delete employee');
+                  }
+                }
+              }}
+            >
+              Delete
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

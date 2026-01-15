@@ -9,7 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 export default function Estimates() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,6 +24,9 @@ export default function Estimates() {
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [selectedEstimate, setSelectedEstimate] = useState(null);
+  const [editingEstimate, setEditingEstimate] = useState(null);
   
   // Inline creation states
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
@@ -41,7 +46,8 @@ export default function Estimates() {
     estimate_date: new Date().toISOString().split('T')[0],
     valid_until: getDefaultValidUntil(),
     notes: '',
-    items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '' }]
+    display_total_amounts: true,
+    items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '', display_amounts: true }]
   });
 
   useEffect(() => {
@@ -145,19 +151,56 @@ export default function Estimates() {
   const handleCreateEstimate = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/estimates', estimateForm);
-      toast.success('Estimate created successfully', { style: { background: '#10b981', color: 'white' } });
+      if (editingEstimate) {
+        await api.put(`/estimates/${editingEstimate.id}`, estimateForm);
+        toast.success('Estimate updated successfully', { style: { background: '#10b981', color: 'white' } });
+      } else {
+        await api.post('/estimates', estimateForm);
+        toast.success('Estimate created successfully', { style: { background: '#10b981', color: 'white' } });
+      }
       setCreateDialogOpen(false);
       resetForm();
       fetchEstimates();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create estimate', { style: { background: '#ef4444', color: 'white' } });
+      toast.error(error.response?.data?.detail || `Failed to ${editingEstimate ? 'update' : 'create'} estimate`, { style: { background: '#ef4444', color: 'white' } });
     }
+  };
+
+  const handleEditEstimate = (estimate) => {
+    setEditingEstimate(estimate);
+    setEstimateForm({
+      customer_id: estimate.customer_id,
+      estimate_date: estimate.estimate_date,
+      valid_until: estimate.valid_until,
+      notes: estimate.notes || '',
+      display_total_amounts: estimate.display_total_amounts !== undefined ? estimate.display_total_amounts : true,
+      items: estimate.items.map(item => ({
+        product_id: item.product_id || '',
+        product_name: item.product_name,
+        description: item.description || '',
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        display_amounts: item.display_amounts !== undefined ? item.display_amounts : true
+      }))
+    });
+    setCreateDialogOpen(true);
+  };
+
+  const resetForm = () => {
+    setEstimateForm({
+      customer_id: '',
+      estimate_date: new Date().toISOString().split('T')[0],
+      valid_until: getDefaultValidUntil(),
+      notes: '',
+      display_total_amounts: true,
+      items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '', display_amounts: true }]
+    });
+    setEditingEstimate(null);
   };
 
   const handleConvertToInvoice = async (estimateId) => {
     if (!window.confirm('Convert this estimate to an invoice?')) return;
-    
+
     try {
       await api.post(`/estimates/${estimateId}/convert`);
       toast.success('Estimate converted to invoice successfully');
@@ -167,10 +210,42 @@ export default function Estimates() {
     }
   };
 
+  const handleViewEstimate = async (estimateId) => {
+    try {
+      const response = await api.get(`/estimates/${estimateId}`);
+      setSelectedEstimate(response.data);
+      setViewDialogOpen(true);
+    } catch (error) {
+      toast.error('Failed to load estimate details');
+    }
+  };
+
+  const handleDownloadEstimatePDF = async () => {
+    try {
+      const element = document.getElementById('estimate-pdf-content');
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Estimate-${selectedEstimate.estimate_number}.pdf`);
+      toast.success('PDF downloaded successfully');
+    } catch (error) {
+      toast.error('Failed to generate PDF');
+    }
+  };
+
   const addEstimateItem = () => {
     setEstimateForm({
       ...estimateForm,
-      items: [...estimateForm.items, { product_id: '', product_name: '', description: '', quantity: 1, unit_price: 0 }]
+      items: [...estimateForm.items, { product_id: '', product_name: '', description: '', quantity: 1, unit_price: 0, display_amounts: true }]
     });
   };
 
@@ -194,18 +269,14 @@ export default function Estimates() {
     setEstimateForm({ ...estimateForm, items: newItems });
   };
 
-  const resetForm = () => {
-    setEstimateForm({
-      customer_id: '',
-      estimate_date: new Date().toISOString().split('T')[0],
-      valid_until: getDefaultValidUntil(),
-      notes: '',
-      items: [{ product_id: '', product_name: '', description: '', quantity: 1, unit_price: 0 }]
-    });
-  };
-
   const calculateTotal = (items) => {
-    return items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+    return items.reduce((sum, item) => {
+      // Only include items where display_amounts is true (or not explicitly set to false)
+      if (item.display_amounts !== false) {
+        return sum + (item.quantity * item.unit_price);
+      }
+      return sum;
+    }, 0);
   };
 
   const getStatusColor = (status) => {
@@ -329,14 +400,32 @@ export default function Estimates() {
                       </>
                     ) : (
                       <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleViewEstimate(estimate.id)}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
+                        </Button>
                         {estimate.status !== 'converted' && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleConvertToInvoice(estimate.id)}
-                          >
-                            <ArrowRight className="w-4 h-4 mr-1" />
-                            Convert to Invoice
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => handleConvertToInvoice(estimate.id)}
+                            >
+                              <ArrowRight className="w-4 h-4 mr-1" />
+                              Convert to Invoice
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEditEstimate(estimate)}
+                            >
+                              <Pencil className="w-4 h-4 mr-1" />
+                              Edit
+                            </Button>
+                          </>
                         )}
                         <Button
                           size="sm"
@@ -370,7 +459,7 @@ export default function Estimates() {
         }}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create New Estimate</DialogTitle>
+              <DialogTitle>{editingEstimate ? 'Edit Estimate' : 'Create New Estimate'}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateEstimate} className="space-y-4">
               <div className="grid grid-cols-12 gap-4">
@@ -429,9 +518,20 @@ export default function Estimates() {
                   </Button>
                 </div>
 
+                {/* Column Headers */}
+                <div className="grid grid-cols-12 gap-2 mb-2 px-1">
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Product</div>
+                  <div className="col-span-3 text-xs font-semibold text-gray-600">Name</div>
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Quantity</div>
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Unit Price</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Total</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Add to Total</div>
+                  <div className="col-span-1"></div>
+                </div>
+
                 {estimateForm.items.map((item, index) => (
                   <div key={index} className="grid grid-cols-12 gap-2 mb-3 items-center">
-                    <div className="col-span-3">
+                    <div className="col-span-2">
                       <Select
                         value={item.product_id || "custom"}
                         onValueChange={(value) => updateEstimateItem(index, 'product_id', value === "custom" ? "" : value)}
@@ -478,6 +578,15 @@ export default function Estimates() {
                     <div className="col-span-1">
                       <p className="text-sm font-semibold text-center">Rs {(item.quantity * item.unit_price).toFixed(2)}</p>
                     </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={item.display_amounts !== false}
+                        onChange={(e) => updateEstimateItem(index, 'display_amounts', e.target.checked)}
+                        className="w-4 h-4 cursor-pointer"
+                        title="Include this item's total in grand total"
+                      />
+                    </div>
                     <div className="col-span-1">
                       {estimateForm.items.length > 1 && (
                         <Button
@@ -511,6 +620,19 @@ export default function Estimates() {
                   onChange={(e) => setEstimateForm({ ...estimateForm, notes: e.target.value })}
                   rows={2}
                 />
+              </div>
+
+              <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                <input
+                  type="checkbox"
+                  id="display-total-amounts"
+                  checked={estimateForm.display_total_amounts !== false}
+                  onChange={(e) => setEstimateForm({ ...estimateForm, display_total_amounts: e.target.checked })}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="display-total-amounts" className="text-sm font-medium cursor-pointer">
+                  Display Total Amounts (uncheck to hide all unit prices and totals in estimate view)
+                </label>
               </div>
 
               <div className="flex justify-end gap-2">
@@ -604,6 +726,102 @@ export default function Estimates() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* View Estimate Dialog */}
+        {selectedEstimate && (
+          <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>Estimate Details</DialogTitle>
+                  <Button
+                    size="sm"
+                    onClick={handleDownloadEstimatePDF}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download PDF
+                  </Button>
+                </div>
+              </DialogHeader>
+              <div id="estimate-pdf-content" className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600">Estimate Number</p>
+                      <p className="font-bold text-lg">{selectedEstimate.estimate_number}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Status</p>
+                      <span className={`inline-block px-3 py-1 rounded text-sm font-semibold ${getStatusColor(selectedEstimate.status)}`}>
+                        {selectedEstimate.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Customer</p>
+                      <p className="font-semibold">{selectedEstimate.customer?.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Date</p>
+                      <p className="font-semibold">{selectedEstimate.estimate_date}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Valid Until</p>
+                      <p className="font-semibold">{selectedEstimate.valid_until}</p>
+                    </div>
+                    {selectedEstimate.notes && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-gray-600">Notes</p>
+                        <p className="font-semibold">{selectedEstimate.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold mb-2">Items</h3>
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left p-2 text-sm">Item</th>
+                        <th className="text-right p-2 text-sm">Qty</th>
+                        <th className="text-right p-2 text-sm">Price</th>
+                        <th className="text-right p-2 text-sm">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedEstimate.items.map((item, index) => (
+                        <tr key={index} className="border-b">
+                          <td className="p-2">
+                            <div>
+                              <p className="font-semibold">{item.product_name}</p>
+                              {item.description && <p className="text-sm text-gray-600">{item.description}</p>}
+                            </div>
+                          </td>
+                          <td className="text-right p-2">{item.quantity}</td>
+                          <td className="text-right p-2">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs ${item.unit_price.toFixed(2)}` : ''}
+                          </td>
+                          <td className="text-right p-2">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs ${item.total.toFixed(2)}` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-bold">
+                      <tr>
+                        <td colSpan="3" className="text-right p-2">Total</td>
+                        <td className="text-right p-2 text-green-600">
+                          {selectedEstimate.display_total_amounts !== false ? `Rs ${selectedEstimate.total.toFixed(2)}` : ''}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </Layout>
   );

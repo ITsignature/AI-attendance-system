@@ -8,8 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, Eye, DollarSign, Trash2, Filter, Archive } from 'lucide-react';
+import { Plus, FileText, Eye, DollarSign, Trash2, Filter, Archive, Download } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 export default function Invoices() {
   const navigate = useNavigate();
@@ -36,7 +38,8 @@ export default function Invoices() {
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCustomerData, setNewCustomerData] = useState({
-    name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: ''
+    name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: '',
+    bank_name: '', bank_branch: '', bank_account_number: '', bank_account_holder_name: ''
   });
   const [newProductData, setNewProductData] = useState({
     name: '', description: '', price: '', unit: 'pcs', stock_quantity: '', category_id: ''
@@ -194,6 +197,28 @@ export default function Invoices() {
       setViewDialogOpen(true);
     } catch (error) {
       toast.error('Failed to load invoice details');
+    }
+  };
+
+  const handleDownloadInvoicePDF = async () => {
+    try {
+      const element = document.getElementById('invoice-pdf-content');
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Invoice-${selectedInvoice.invoice_number}.pdf`);
+      toast.success('PDF downloaded successfully');
+    } catch (error) {
+      toast.error('Failed to generate PDF');
     }
   };
 
@@ -646,9 +671,19 @@ export default function Invoices() {
           <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
             <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Invoice Details</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>Invoice Details</DialogTitle>
+                  <Button
+                    size="sm"
+                    onClick={handleDownloadInvoicePDF}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download PDF
+                  </Button>
+                </div>
               </DialogHeader>
-              <div className="space-y-4">
+              <div id="invoice-pdf-content" className="space-y-4">
                 <div className="bg-gray-50 p-4 rounded">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -865,6 +900,48 @@ export default function Invoices() {
                   rows={2}
                 />
               </div>
+
+              {/* Bank Details Section */}
+              <div className="border-t pt-4 mt-2">
+                <h3 className="text-sm font-semibold mb-3 text-gray-700">Bank Details (Optional)</h3>
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-6">
+                    <label className="block text-sm font-medium mb-1">Bank Name</label>
+                    <Input
+                      value={newCustomerData.bank_name}
+                      onChange={(e) => setNewCustomerData({ ...newCustomerData, bank_name: e.target.value })}
+                      placeholder="Enter bank name"
+                    />
+                  </div>
+                  <div className="col-span-6">
+                    <label className="block text-sm font-medium mb-1">Branch</label>
+                    <Input
+                      value={newCustomerData.bank_branch}
+                      onChange={(e) => setNewCustomerData({ ...newCustomerData, bank_branch: e.target.value })}
+                      placeholder="Enter branch"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-12 gap-4 mt-4">
+                  <div className="col-span-6">
+                    <label className="block text-sm font-medium mb-1">Account Number</label>
+                    <Input
+                      value={newCustomerData.bank_account_number}
+                      onChange={(e) => setNewCustomerData({ ...newCustomerData, bank_account_number: e.target.value.replace(/\D/g, '') })}
+                      placeholder="Enter account number"
+                    />
+                  </div>
+                  <div className="col-span-6">
+                    <label className="block text-sm font-medium mb-1">Account Holder Name</label>
+                    <Input
+                      value={newCustomerData.bank_account_holder_name}
+                      onChange={(e) => setNewCustomerData({ ...newCustomerData, bank_account_holder_name: e.target.value })}
+                      placeholder="Enter account holder name"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setAddCustomerDialogOpen(false)}>Cancel</Button>
                 <Button type="submit">Add Customer</Button>

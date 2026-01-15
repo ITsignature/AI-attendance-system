@@ -27,7 +27,11 @@ export default function InvoiceCustomers() {
     phone: '',
     whatsapp: '',
     city: '',
-    address: ''
+    address: '',
+    bank_name: '',
+    bank_branch: '',
+    bank_account_number: '',
+    bank_account_holder_name: ''
   });
 
   useEffect(() => {
@@ -109,7 +113,11 @@ export default function InvoiceCustomers() {
       phone: customer.phone || '',
       whatsapp: customer.whatsapp || '',
       city: customer.city || '',
-      address: customer.address || ''
+      address: customer.address || '',
+      bank_name: customer.bank_name || '',
+      bank_branch: customer.bank_branch || '',
+      bank_account_number: customer.bank_account_number || '',
+      bank_account_holder_name: customer.bank_account_holder_name || ''
     });
     setDialogOpen(true);
   };
@@ -131,7 +139,19 @@ export default function InvoiceCustomers() {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: '' });
+    setFormData({
+      name: '',
+      company_name: '',
+      email: '',
+      phone: '',
+      whatsapp: '',
+      city: '',
+      address: '',
+      bank_name: '',
+      bank_branch: '',
+      bank_account_number: '',
+      bank_account_holder_name: ''
+    });
     setEditingCustomer(null);
   };
 
@@ -253,6 +273,44 @@ export default function InvoiceCustomers() {
                       placeholder="Full Address"
                       rows={3}
                     />
+                  </div>
+
+                  {/* Bank Details Section */}
+                  <div className="border-t pt-4 mt-2">
+                    <h3 className="text-sm font-semibold mb-3 text-gray-700">Bank Details (Optional)</h3>
+                    <div className="grid grid-cols-12 gap-4">
+                      <div className="col-span-6">
+                        <Input
+                          value={formData.bank_name}
+                          onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                          placeholder="Bank Name"
+                        />
+                      </div>
+                      <div className="col-span-6">
+                        <Input
+                          value={formData.bank_branch}
+                          onChange={(e) => setFormData({ ...formData, bank_branch: e.target.value })}
+                          placeholder="Branch"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-12 gap-4 mt-4">
+                      <div className="col-span-6">
+                        <Input
+                          value={formData.bank_account_number}
+                          onChange={(e) => setFormData({ ...formData, bank_account_number: e.target.value.replace(/\D/g, '') })}
+                          placeholder="Account Number"
+                        />
+                      </div>
+                      <div className="col-span-6">
+                        <Input
+                          value={formData.bank_account_holder_name}
+                          onChange={(e) => setFormData({ ...formData, bank_account_holder_name: e.target.value })}
+                          placeholder="Account Holder Name"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex justify-end gap-2">
