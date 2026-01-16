@@ -136,7 +136,7 @@ export default function Estimates() {
     }
   };
 
-  // Inline customer creation
+  // Inline customer creation function
   const handleAddNewCustomer = async (e) => {
     e.preventDefault();
     try {
