@@ -490,15 +490,32 @@ export default function Estimates() {
                           </Button>
                         )}
 
+                        {/* Reject button for approved estimates - admin can change back to rejected */}
+                        {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && estimate.approval_status === 'approved' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRejectEstimate(estimate.id)}
+                          >
+                            <X className="w-4 h-4 mr-1" />
+                            Reject
+                          </Button>
+                        )}
+
+                        {/* Convert to Invoice button - employees can only convert approved estimates */}
                         {estimate.status !== 'converted' && (
                           <>
-                            <Button
-                              size="sm"
-                              onClick={() => handleConvertToInvoice(estimate.id)}
-                            >
-                              <ArrowRight className="w-4 h-4 mr-1" />
-                              Convert to Invoice
-                            </Button>
+                            {((user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') ||
+                              (estimate.approval_status === 'approved')) && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleConvertToInvoice(estimate.id)}
+                              >
+                                <ArrowRight className="w-4 h-4 mr-1" />
+                                Convert to Invoice
+                              </Button>
+                            )}
                             {/* Edit button - all users can edit estimates */}
                             <Button
                               size="sm"

@@ -293,26 +293,25 @@ export default function Layout({ children }) {
       {/* Desktop Sidebar */}
       <aside className={`hidden lg:fixed lg:flex lg:w-72 lg:flex-col ${impersonationState ? 'lg:top-[48px] lg:bottom-0' : 'lg:inset-y-0'}`}>
         <div className="flex flex-col flex-grow bg-white border-r border-gray-200 overflow-y-auto">
-          <div className="flex flex-col items-center justify-center px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600">
+          <div className="flex flex-col items-center justify-center px-0 py-0 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600">
             {companyInfo?.logo ? (
-              <div className="relative h-12 w-auto mb-2 flex items-center justify-center">
-                <img 
-                  src={companyInfo.logo} 
-                  alt={`${companyInfo.name} Logo`} 
-                  className="h-12 w-auto object-contain brightness-0 invert rounded-lg"
-                  style={{ borderRadius: '8px' }}
-                />
-              </div>
+              <img
+                src={companyInfo.logo}
+                alt={`${companyInfo.name} Logo`}
+                className="w-full h-24 object-cover"
+              />
             ) : (
-              <div className="h-12 w-12 bg-white/20 rounded-full flex items-center justify-center mb-2">
-                <span className="text-2xl font-bold text-white">
-                  {companyInfo?.name?.split(' ').map(w => w[0]).join('').slice(0, 2) || 'IT'}
-                </span>
-              </div>
+              <>
+                <div className="h-12 w-12 bg-white/20 rounded-full flex items-center justify-center mb-2">
+                  <span className="text-2xl font-bold text-white">
+                    {companyInfo?.name?.split(' ').map(w => w[0]).join('').slice(0, 2) || 'IT'}
+                  </span>
+                </div>
+                <h1 className="text-xl font-bold text-white text-center" style={{ fontFamily: 'Work Sans, sans-serif' }}>
+                  {companyInfo?.name || 'IT Signature ERP'}
+                </h1>
+              </>
             )}
-            <h1 className="text-xl font-bold text-white text-center" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-              {companyInfo?.name || 'IT Signature ERP'}
-            </h1>
           </div>
 
           <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
@@ -377,24 +376,25 @@ export default function Layout({ children }) {
             </SheetTrigger>
             <SheetContent side="right" className="w-80 p-0">
               <div className="flex flex-col h-full">
-                <div className="flex flex-col items-center justify-center px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600">
+                <div className="flex flex-col items-center justify-center px-0 py-0 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600">
                   {companyInfo?.logo ? (
-                    <img 
-                      src={companyInfo.logo} 
-                      alt={`${companyInfo.name} Logo`} 
-                      className="h-10 w-auto mb-2 brightness-0 invert object-contain rounded-lg"
-                      style={{ borderRadius: '6px' }}
+                    <img
+                      src={companyInfo.logo}
+                      alt={`${companyInfo.name} Logo`}
+                      className="w-full h-20 object-cover"
                     />
                   ) : (
-                    <div className="h-10 w-10 bg-white/20 rounded-full flex items-center justify-center mb-2">
-                      <span className="text-xl font-bold text-white">
-                        {companyInfo?.name?.split(' ').map(w => w[0]).join('').slice(0, 2) || 'IT'}
-                      </span>
-                    </div>
+                    <>
+                      <div className="h-10 w-10 bg-white/20 rounded-full flex items-center justify-center mb-2">
+                        <span className="text-xl font-bold text-white">
+                          {companyInfo?.name?.split(' ').map(w => w[0]).join('').slice(0, 2) || 'IT'}
+                        </span>
+                      </div>
+                      <h2 className="text-lg font-bold text-white text-center" style={{ fontFamily: 'Work Sans, sans-serif' }}>
+                        {companyInfo?.name || 'IT Signature ERP'}
+                      </h2>
+                    </>
                   )}
-                  <h2 className="text-lg font-bold text-white text-center" style={{ fontFamily: 'Work Sans, sans-serif' }}>
-                    {companyInfo?.name || 'IT Signature ERP'}
-                  </h2>
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">

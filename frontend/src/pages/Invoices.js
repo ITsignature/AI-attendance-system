@@ -806,11 +806,11 @@ export default function Invoices() {
                       </div>
                       <div>
                         <span className="font-bold text-xs text-gray-700">Address:</span>
-                        <p className="text-sm">{company?.address || 'N/A'}</p>
+                        <p className="text-sm">{company?.invoice_address || 'N/A'}</p>
                       </div>
                       <div>
                         <span className="font-bold text-xs text-gray-700">Telephone No:</span>
-                        <p className="text-sm">{company?.phone || 'N/A'}</p>
+                        <p className="text-sm">{company?.invoice_mobile || 'N/A'}</p>
                       </div>
                     </div>
                   </div>

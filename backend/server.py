@@ -1145,6 +1145,11 @@ class CompanySettings(BaseModel):
     bank_account_name: Optional[str] = None
     bank_account_number: Optional[str] = None
     bank_branch: Optional[str] = None
+    tin: Optional[str] = None
+    place_of_supply: Optional[str] = None
+    branch_code: Optional[str] = None
+    company_logo: Optional[str] = None
+    favicon: Optional[str] = None
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class SettingsUpdate(BaseModel):
@@ -2364,8 +2369,8 @@ async def delete_extra_payment(payment_id: str, current_user: User = Depends(get
 @api_router.post("/customers")
 async def create_customer(customer_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new customer"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     customer = Customer(
         company_id=current_user.company_id,
@@ -2404,8 +2409,8 @@ async def get_customers(include_deleted: bool = False, current_user: User = Depe
 @api_router.put("/customers/{customer_id}")
 async def update_customer(customer_id: str, customer_data: dict, current_user: User = Depends(get_current_user)):
     """Update customer"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     customer = await db.customers.find_one({"id": customer_id, "company_id": current_user.company_id})
     if not customer:
@@ -2423,8 +2428,8 @@ async def update_customer(customer_id: str, customer_data: dict, current_user: U
 @api_router.delete("/customers/{customer_id}")
 async def delete_customer(customer_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete customer"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     customer = await db.customers.find_one({"id": customer_id, "company_id": current_user.company_id})
     if not customer:
@@ -2446,8 +2451,8 @@ async def delete_customer(customer_id: str, current_user: User = Depends(get_cur
 @api_router.put("/customers/{customer_id}/restore")
 async def restore_customer(customer_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted customer"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     customer = await db.customers.find_one({"id": customer_id, "company_id": current_user.company_id, "deleted": True})
     if not customer:
@@ -2465,8 +2470,8 @@ async def restore_customer(customer_id: str, current_user: User = Depends(get_cu
 @api_router.post("/product-categories")
 async def create_category(category_data: dict, current_user: User = Depends(get_current_user)):
     """Create product category"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     category = ProductCategory(
         company_id=current_user.company_id,
@@ -2489,8 +2494,8 @@ async def get_categories(current_user: User = Depends(get_current_user)):
 @api_router.post("/products")
 async def create_product(product_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new product"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     product = Product(
         company_id=current_user.company_id,
@@ -2523,8 +2528,8 @@ async def get_products(include_deleted: bool = False, current_user: User = Depen
 @api_router.put("/products/{product_id}")
 async def update_product(product_id: str, product_data: dict, current_user: User = Depends(get_current_user)):
     """Update product"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     product = await db.products.find_one({"id": product_id, "company_id": current_user.company_id})
     if not product:
@@ -2542,8 +2547,8 @@ async def update_product(product_id: str, product_data: dict, current_user: User
 @api_router.delete("/products/{product_id}")
 async def delete_product(product_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete product"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     product = await db.products.find_one({"id": product_id, "company_id": current_user.company_id})
     if not product:
@@ -2565,8 +2570,8 @@ async def delete_product(product_id: str, current_user: User = Depends(get_curre
 @api_router.put("/products/{product_id}/restore")
 async def restore_product(product_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted product"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     product = await db.products.find_one({"id": product_id, "company_id": current_user.company_id, "deleted": True})
     if not product:
@@ -2594,8 +2599,8 @@ def generate_invoice_number(branch_code: str = "MAIN"):
 @api_router.post("/invoices")
 async def create_invoice(invoice_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new invoice"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get company info for branch code
     company = await db.companies.find_one({"id": current_user.company_id})
@@ -2678,8 +2683,8 @@ async def create_invoice(invoice_data: dict, current_user: User = Depends(get_cu
 @api_router.put("/invoices/{invoice_id}")
 async def update_invoice(invoice_id: str, invoice_data: dict, current_user: User = Depends(get_current_user)):
     """Update an existing invoice (for adding missing VAT fields like date_of_delivery, place_of_supply, payment_mode)"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get existing invoice
     existing_invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id})
@@ -2774,8 +2779,8 @@ async def get_invoice(invoice_id: str, current_user: User = Depends(get_current_
 @api_router.post("/invoices/{invoice_id}/payments")
 async def add_payment(invoice_id: str, payment_data: dict, current_user: User = Depends(get_current_user)):
     """Add payment to invoice"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id})
     if not invoice:
@@ -2809,8 +2814,8 @@ async def add_payment(invoice_id: str, payment_data: dict, current_user: User = 
 @api_router.delete("/invoices/{invoice_id}")
 async def delete_invoice(invoice_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete invoice"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id})
     if not invoice:
@@ -2831,8 +2836,8 @@ async def delete_invoice(invoice_id: str, current_user: User = Depends(get_curre
 @api_router.put("/invoices/{invoice_id}/restore")
 async def restore_invoice(invoice_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted invoice"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id, "deleted": True})
     if not invoice:
@@ -2857,8 +2862,8 @@ def generate_estimate_number():
 @api_router.post("/estimates")
 async def create_estimate(estimate_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new estimate"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Generate estimate number with sequence
     base_number = generate_estimate_number()
@@ -2937,8 +2942,8 @@ async def get_estimate(estimate_id: str, current_user: User = Depends(get_curren
 @api_router.post("/estimates/{estimate_id}/convert")
 async def convert_estimate_to_invoice(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Convert estimate to invoice"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id})
     if not estimate:
@@ -3083,8 +3088,8 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
 @api_router.put("/estimates/{estimate_id}/restore")
 async def restore_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted estimate"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": True})
     if not estimate:
@@ -3101,8 +3106,8 @@ async def restore_estimate(estimate_id: str, current_user: User = Depends(get_cu
 @api_router.put("/estimates/{estimate_id}/approve")
 async def approve_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Approve an estimate (admin/manager/accountant only)"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
     if not estimate:
@@ -3128,8 +3133,8 @@ async def approve_estimate(estimate_id: str, current_user: User = Depends(get_cu
 @api_router.put("/estimates/{estimate_id}/reject")
 async def reject_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Reject an estimate (admin/manager/accountant only)"""
-    if current_user.role not in ["admin", "manager", "accountant"]:
-        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
     if not estimate:
