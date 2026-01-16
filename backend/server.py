@@ -58,6 +58,9 @@ class Company(BaseModel):
     company_info_completed: bool = False
     invoicing_enabled: bool = False
     location_tracking_enabled: bool = False
+    tin: Optional[str] = None  # Tax Identification Number for VAT invoices
+    place_of_supply: Optional[str] = None  # Default place of supply for invoices
+    branch_code: Optional[str] = None  # Branch code for invoice numbering (QQQQ in YYMMM_QQQQ_XXXXX)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_login: Optional[str] = None
 
@@ -100,7 +103,7 @@ class User(BaseModel):
     employee_id: Optional[str] = None
     mobile: str
     name: str
-    role: str  # super_admin, admin, manager, employee, staff_member
+    role: str  # super_admin, admin, manager, accountant, employee, staff_member
     department: Optional[str] = None
     position: Optional[str] = None
     basic_salary: float = 0.0
@@ -226,6 +229,7 @@ class Customer(BaseModel):
     whatsapp: Optional[str] = None
     city: Optional[str] = None
     address: Optional[str] = None
+    tin: Optional[str] = None  # Tax Identification Number
     bank_name: Optional[str] = None
     bank_branch: Optional[str] = None
     bank_account_number: Optional[str] = None
@@ -273,14 +277,20 @@ class Invoice(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company_id: str
     customer_id: str
-    invoice_number: str
+    invoice_number: str  # Format: YYMMM_QQQQ_XXXXX (e.g., 25JAN_MAIN_00001)
     invoice_date: str
     due_date: Optional[str] = None
+    date_of_delivery: Optional[str] = None  # Date when goods/services were delivered
+    place_of_supply: Optional[str] = None  # Location from which delivery originates
     items: List[InvoiceItem] = []
-    subtotal: float
-    total: float
+    subtotal: float  # Net amount (exclusive of VAT)
+    vat_rate: float = 18.0  # VAT rate percentage
+    vat_amount: float = 0  # VAT amount calculated
+    total: float  # Total including VAT
+    total_in_words: Optional[str] = None  # Total amount in words
     amount_paid: float = 0
     status: str = "unpaid"  # unpaid, partial, paid
+    payment_mode: Optional[str] = None  # Cash, Bank Transfer, Cheque, Credit/Debit card, Mobile Payment, Online Payment
     notes: Optional[str] = None
     created_by: str
     created_by_name: str
@@ -321,6 +331,13 @@ class Estimate(BaseModel):
     deleted: bool = False
     deleted_at: Optional[str] = None
     deleted_by: Optional[str] = None
+    approval_status: str = "pending"  # pending, approved, rejected
+    approved_by: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    approved_at: Optional[str] = None
+    rejected_by: Optional[str] = None
+    rejected_by_name: Optional[str] = None
+    rejected_at: Optional[str] = None
 
 
 # ============= LOCATION TRACKING MODELS =============
@@ -1145,6 +1162,9 @@ class SettingsUpdate(BaseModel):
     bank_account_name: Optional[str] = None
     bank_account_number: Optional[str] = None
     bank_branch: Optional[str] = None
+    tin: Optional[str] = None
+    place_of_supply: Optional[str] = None
+    branch_code: Optional[str] = None
 
 class Holiday(BaseModel):
     date: str
@@ -1156,25 +1176,29 @@ class Holiday(BaseModel):
 async def get_company_info(current_user: User = Depends(get_current_user)):
     if current_user.role == "super_admin":
         raise HTTPException(status_code=400, detail="Not applicable for super admin")
-    
+
     company = await db.companies.find_one({"id": current_user.company_id}, {"_id": 0})
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-    
-    # Get settings to include logo and favicon
+
+    # Get settings to include logo, favicon, and VAT-related fields
     settings = await db.settings.find_one({"company_id": current_user.company_id}, {"_id": 0})
-    
+
     company_data = Company(**company).model_dump()
     if settings:
         company_data["logo"] = settings.get("company_logo")
         company_data["favicon"] = settings.get("favicon")
-    
+        # Include VAT-related fields from settings
+        company_data["tin"] = settings.get("tin")
+        company_data["place_of_supply"] = settings.get("place_of_supply")
+        company_data["branch_code"] = settings.get("branch_code")
+
     return company_data
 
 @api_router.put("/company/info")
 async def update_company_info(info: CompanyInfoUpdate, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     result = await db.companies.update_one(
         {"id": current_user.company_id},
@@ -1251,8 +1275,8 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
     if current_user.role == "super_admin":
         raise HTTPException(status_code=400, detail="Not applicable for super admin")
     
-    if current_user.role in ["admin", "manager"]:
-        # Admin/Manager stats
+    if current_user.role in ["admin", "manager", "accountant"]:
+        # Admin/Manager/Accountant stats
         # Get all active employees (status=1 or not set, is_active=True) - without date filter yet
         today_str = datetime.now(timezone.utc).date().isoformat()
         all_active_employees = await db.users.find({
@@ -1378,8 +1402,8 @@ async def get_employees(include_pending_increments: bool = False, include_delete
     if current_user.role == "super_admin":
         raise HTTPException(status_code=403, detail="Super admin cannot access company employees")
     
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Build query - exclude super_admin role
     query = {"company_id": current_user.company_id, "role": {"$ne": "super_admin"}}
@@ -1417,8 +1441,8 @@ async def get_employees(include_pending_increments: bool = False, include_delete
 
 @api_router.post("/employees")
 async def create_employee(employee: UserCreate, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Check if employee already exists
     existing = await db.users.find_one({"mobile": employee.mobile, "company_id": current_user.company_id})
@@ -1457,8 +1481,8 @@ async def create_employee(employee: UserCreate, current_user: User = Depends(get
 
 @api_router.put("/employees/{employee_id}")
 async def update_employee(employee_id: str, updates: dict, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Check if employee exists and belongs to the same company
     employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
@@ -1499,8 +1523,8 @@ async def delete_employee(employee_id: str, current_user: User = Depends(get_cur
 @api_router.patch("/employees/{employee_id}/reactivate")
 async def reactivate_employee(employee_id: str, current_user: User = Depends(get_current_user)):
     """Reactivate a deleted/inactive employee (set status = 1)"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Check if employee exists and belongs to the same company
     employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
@@ -1529,8 +1553,8 @@ async def reactivate_employee(employee_id: str, current_user: User = Depends(get
 @api_router.post("/employees/parse-bulk")
 async def parse_bulk_employees(data: dict, current_user: User = Depends(get_current_user)):
     """Use AI to parse pasted employee data and return structured format"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -1602,8 +1626,8 @@ Example output format:
 @api_router.post("/employees/bulk-import")
 async def bulk_import_employees(data: BulkEmployeeImportRequest, current_user: User = Depends(get_current_user)):
     """Import multiple employees after admin confirmation and editing"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     try:
         # Get company settings for default times
@@ -1685,8 +1709,8 @@ async def bulk_import_employees(data: BulkEmployeeImportRequest, current_user: U
 @api_router.post("/employees/{employee_id}/increments")
 async def add_increment(employee_id: str, increment_data: dict, current_user: User = Depends(get_current_user)):
     """Add salary increment for an employee"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     # Get employee
     employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
@@ -1777,8 +1801,8 @@ async def get_employee_pending_increment(employee_id: str, current_user: User = 
 @api_router.get("/increments/pending")
 async def get_all_pending_increments(current_user: User = Depends(get_current_user)):
     """Get all pending increments for the company"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     pending_increments = await db.increments.find(
         {"company_id": current_user.company_id, "status": "pending"},
@@ -1796,8 +1820,8 @@ async def get_all_pending_increments(current_user: User = Depends(get_current_us
 @api_router.get("/increments")
 async def get_all_increments(current_user: User = Depends(get_current_user)):
     """Get all increments for the company (admin view)"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     increments = await db.increments.find(
         {"company_id": current_user.company_id},
@@ -1809,8 +1833,8 @@ async def get_all_increments(current_user: User = Depends(get_current_user)):
 @api_router.post("/increments/activate-pending")
 async def activate_pending_increments(current_user: User = Depends(get_current_user)):
     """Activate pending increments whose effective date has arrived"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     current_month = datetime.now(timezone.utc).strftime("%Y-%m")
     
@@ -1856,8 +1880,8 @@ async def activate_pending_increments(current_user: User = Depends(get_current_u
 @api_router.post("/loans")
 async def create_loan(loan_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new loan for an employee"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     # Validate employee exists
     employee = await db.users.find_one({
@@ -1911,8 +1935,8 @@ async def get_loans(employee_id: Optional[str] = None, current_user: User = Depe
 @api_router.put("/loans/{loan_id}/status")
 async def update_loan_status(loan_id: str, status_data: dict, current_user: User = Depends(get_current_user)):
     """Update loan status (mark as completed/cancelled)"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     loan = await db.loans.find_one({
         "id": loan_id,
@@ -1941,8 +1965,8 @@ async def update_loan_status(loan_id: str, status_data: dict, current_user: User
 @api_router.delete("/loans/{loan_id}")
 async def delete_loan(loan_id: str, current_user: User = Depends(get_current_user)):
     """Delete a loan"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     loan = await db.loans.find_one({
         "id": loan_id,
@@ -1969,33 +1993,47 @@ async def delete_loan(loan_id: str, current_user: User = Depends(get_current_use
 # ============= ADVANCES ENDPOINTS =============
 @api_router.post("/advances")
 async def create_advance(advance_data: dict, current_user: User = Depends(get_current_user)):
-    """Create a new advance request"""
+    """Create an advance for an employee (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
+
+    # Get employee details
+    employee_id = advance_data.get("employee_id")
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="Employee ID is required")
+
+    employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
     advance = Advance(
         company_id=current_user.company_id,
-        employee_id=current_user.id,
-        employee_name=current_user.name,
+        employee_id=employee_id,
+        employee_name=employee["name"],
         amount=advance_data["amount"],
         reason=advance_data.get("reason", ""),
-        repayment_months=advance_data.get("repayment_months", 1)
+        repayment_months=advance_data.get("repayment_months", 1),
+        status="approved",  # Directly approved, no workflow
+        approved_by=current_user.name
     )
-    
+
     await db.advances.insert_one(advance.model_dump())
-    
+
     # Log activity
     await log_activity(
         current_user.company_id,
         current_user.id,
         current_user.name,
         "CREATE_ADVANCE",
-        f"Requested advance of Rs. {advance_data['amount']}"
+        f"Applied advance of Rs. {advance_data['amount']} for {employee['name']}"
     )
-    
+
     return advance
 
 @api_router.get("/advances")
 async def get_advances(current_user: User = Depends(get_current_user)):
     """Get all advances (admin/manager see all, employees see only their own)"""
-    if current_user.role in ["admin", "manager"]:
+    if current_user.role in ["admin", "manager", "accountant"]:
         query = {"company_id": current_user.company_id}
     else:
         query = {"company_id": current_user.company_id, "employee_id": current_user.id}
@@ -2005,67 +2043,122 @@ async def get_advances(current_user: User = Depends(get_current_user)):
     return advances
 
 @api_router.put("/advances/{advance_id}")
-async def update_advance_status(advance_id: str, status_data: dict, current_user: User = Depends(get_current_user)):
-    """Update advance status (approve/reject)"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
-    
+async def update_advance(advance_id: str, advance_data: dict, current_user: User = Depends(get_current_user)):
+    """Update advance details (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
     advance = await db.advances.find_one({
         "id": advance_id,
         "company_id": current_user.company_id
     })
-    
+
     if not advance:
         raise HTTPException(status_code=404, detail="Advance not found")
-    
+
+    # Get employee details if employee_id is provided
+    employee_id = advance_data.get("employee_id", advance["employee_id"])
+    employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    update_data = {
+        "employee_id": employee_id,
+        "employee_name": employee["name"],
+        "amount": advance_data.get("amount", advance["amount"]),
+        "reason": advance_data.get("reason", advance.get("reason", "")),
+        "repayment_months": advance_data.get("repayment_months", advance.get("repayment_months", 1))
+    }
+
     await db.advances.update_one(
         {"id": advance_id, "company_id": current_user.company_id},
-        {"$set": {"status": status_data["status"]}}
+        {"$set": update_data}
     )
-    
+
     # Log activity
     await log_activity(
         current_user.company_id,
         current_user.id,
         current_user.name,
-        "UPDATE_ADVANCE_STATUS",
-        f"Updated advance status to {status_data['status']} for {advance['employee_name']}"
+        "UPDATE_ADVANCE",
+        f"Updated advance for {employee['name']} (Rs. {advance_data.get('amount', advance['amount'])})"
     )
-    
-    return {"message": "Advance status updated successfully"}
+
+    return {"message": "Advance updated successfully"}
+
+@api_router.delete("/advances/{advance_id}")
+async def delete_advance(advance_id: str, current_user: User = Depends(get_current_user)):
+    """Delete an advance (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
+
+    advance = await db.advances.find_one({
+        "id": advance_id,
+        "company_id": current_user.company_id
+    })
+
+    if not advance:
+        raise HTTPException(status_code=404, detail="Advance not found")
+
+    await db.advances.delete_one({"id": advance_id, "company_id": current_user.company_id})
+
+    # Log activity
+    await log_activity(
+        current_user.company_id,
+        current_user.id,
+        current_user.name,
+        "DELETE_ADVANCE",
+        f"Deleted advance for {advance['employee_name']} (Rs. {advance['amount']})"
+    )
+
+    return {"message": "Advance deleted successfully"}
 
 
 # ============= LEAVES ENDPOINTS =============
 @api_router.post("/leaves")
 async def create_leave(leave_data: dict, current_user: User = Depends(get_current_user)):
-    """Create a new leave request"""
+    """Create a leave for an employee (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
+
+    # Get employee details
+    employee_id = leave_data.get("employee_id")
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="Employee ID is required")
+
+    employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
     leave = Leave(
         company_id=current_user.company_id,
-        employee_id=current_user.id,
-        employee_name=current_user.name,
+        employee_id=employee_id,
+        employee_name=employee["name"],
         leave_type=leave_data["leave_type"],
         from_date=leave_data["from_date"],
         to_date=leave_data["to_date"],
-        reason=leave_data.get("reason", "")
+        reason=leave_data.get("reason", ""),
+        status="approved",  # Directly approved, no workflow
+        approved_by=current_user.name
     )
-    
+
     await db.leaves.insert_one(leave.model_dump())
-    
+
     # Log activity
     await log_activity(
         current_user.company_id,
         current_user.id,
         current_user.name,
         "CREATE_LEAVE",
-        f"Requested {leave_data['leave_type']} leave from {leave_data['from_date']} to {leave_data['to_date']}"
+        f"Applied {leave_data['leave_type']} leave for {employee['name']} from {leave_data['from_date']} to {leave_data['to_date']}"
     )
-    
+
     return leave
 
 @api_router.get("/leaves")
 async def get_leaves(current_user: User = Depends(get_current_user)):
     """Get all leaves (admin/manager see all, employees see only their own)"""
-    if current_user.role in ["admin", "manager"]:
+    if current_user.role in ["admin", "manager", "accountant"]:
         query = {"company_id": current_user.company_id}
     else:
         query = {"company_id": current_user.company_id, "employee_id": current_user.id}
@@ -2075,42 +2168,84 @@ async def get_leaves(current_user: User = Depends(get_current_user)):
     return leaves
 
 @api_router.put("/leaves/{leave_id}")
-async def update_leave_status(leave_id: str, status_data: dict, current_user: User = Depends(get_current_user)):
-    """Update leave status (approve/reject)"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
-    
+async def update_leave(leave_id: str, leave_data: dict, current_user: User = Depends(get_current_user)):
+    """Update leave details (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
     leave = await db.leaves.find_one({
         "id": leave_id,
         "company_id": current_user.company_id
     })
-    
+
     if not leave:
         raise HTTPException(status_code=404, detail="Leave not found")
-    
+
+    # Get employee details if employee_id is provided
+    employee_id = leave_data.get("employee_id", leave["employee_id"])
+    employee = await db.users.find_one({"id": employee_id, "company_id": current_user.company_id})
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    update_data = {
+        "employee_id": employee_id,
+        "employee_name": employee["name"],
+        "leave_type": leave_data.get("leave_type", leave["leave_type"]),
+        "from_date": leave_data.get("from_date", leave["from_date"]),
+        "to_date": leave_data.get("to_date", leave["to_date"]),
+        "reason": leave_data.get("reason", leave.get("reason", ""))
+    }
+
     await db.leaves.update_one(
         {"id": leave_id, "company_id": current_user.company_id},
-        {"$set": {"status": status_data["status"]}}
+        {"$set": update_data}
     )
-    
+
     # Log activity
     await log_activity(
         current_user.company_id,
         current_user.id,
         current_user.name,
-        "UPDATE_LEAVE_STATUS",
-        f"Updated leave status to {status_data['status']} for {leave['employee_name']}"
+        "UPDATE_LEAVE",
+        f"Updated leave for {employee['name']} ({leave_data.get('leave_type', leave['leave_type'])} from {leave_data.get('from_date', leave['from_date'])} to {leave_data.get('to_date', leave['to_date'])})"
     )
-    
-    return {"message": "Leave status updated successfully"}
+
+    return {"message": "Leave updated successfully"}
+
+@api_router.delete("/leaves/{leave_id}")
+async def delete_leave(leave_id: str, current_user: User = Depends(get_current_user)):
+    """Delete a leave (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
+
+    leave = await db.leaves.find_one({
+        "id": leave_id,
+        "company_id": current_user.company_id
+    })
+
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave not found")
+
+    await db.leaves.delete_one({"id": leave_id, "company_id": current_user.company_id})
+
+    # Log activity
+    await log_activity(
+        current_user.company_id,
+        current_user.id,
+        current_user.name,
+        "DELETE_LEAVE",
+        f"Deleted leave for {leave['employee_name']} ({leave['leave_type']} from {leave['from_date']} to {leave['to_date']})"
+    )
+
+    return {"message": "Leave deleted successfully"}
 
 
 # ============= EXTRA PAYMENTS ENDPOINTS =============
 @api_router.post("/extra-payments")
 async def create_extra_payment(payment_data: dict, current_user: User = Depends(get_current_user)):
     """Create extra payment for an employee for a specific month"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     # Validate employee exists
     employee = await db.users.find_one({
@@ -2164,8 +2299,8 @@ async def get_extra_payments(employee_id: Optional[str] = None, month: Optional[
 @api_router.put("/extra-payments/{payment_id}")
 async def update_extra_payment(payment_id: str, payment_data: dict, current_user: User = Depends(get_current_user)):
     """Update extra payment"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     payment = await db.extra_payments.find_one({
         "id": payment_id,
@@ -2199,8 +2334,8 @@ async def update_extra_payment(payment_id: str, payment_data: dict, current_user
 @api_router.delete("/extra-payments/{payment_id}")
 async def delete_extra_payment(payment_id: str, current_user: User = Depends(get_current_user)):
     """Delete extra payment"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     payment = await db.extra_payments.find_one({
         "id": payment_id,
@@ -2229,8 +2364,8 @@ async def delete_extra_payment(payment_id: str, current_user: User = Depends(get
 @api_router.post("/customers")
 async def create_customer(customer_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new customer"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     customer = Customer(
         company_id=current_user.company_id,
@@ -2241,6 +2376,7 @@ async def create_customer(customer_data: dict, current_user: User = Depends(get_
         whatsapp=customer_data.get("whatsapp"),
         city=customer_data.get("city"),
         address=customer_data.get("address"),
+        tin=customer_data.get("tin"),
         bank_name=customer_data.get("bank_name"),
         bank_branch=customer_data.get("bank_branch"),
         bank_account_number=customer_data.get("bank_account_number"),
@@ -2255,8 +2391,8 @@ async def create_customer(customer_data: dict, current_user: User = Depends(get_
 @api_router.get("/customers")
 async def get_customers(include_deleted: bool = False, current_user: User = Depends(get_current_user)):
     """Get all customers for company"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     query = {"company_id": current_user.company_id}
     if not include_deleted:
@@ -2268,8 +2404,8 @@ async def get_customers(include_deleted: bool = False, current_user: User = Depe
 @api_router.put("/customers/{customer_id}")
 async def update_customer(customer_id: str, customer_data: dict, current_user: User = Depends(get_current_user)):
     """Update customer"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     customer = await db.customers.find_one({"id": customer_id, "company_id": current_user.company_id})
     if not customer:
@@ -2287,8 +2423,8 @@ async def update_customer(customer_id: str, customer_data: dict, current_user: U
 @api_router.delete("/customers/{customer_id}")
 async def delete_customer(customer_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete customer"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     customer = await db.customers.find_one({"id": customer_id, "company_id": current_user.company_id})
     if not customer:
@@ -2310,8 +2446,8 @@ async def delete_customer(customer_id: str, current_user: User = Depends(get_cur
 @api_router.put("/customers/{customer_id}/restore")
 async def restore_customer(customer_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted customer"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     customer = await db.customers.find_one({"id": customer_id, "company_id": current_user.company_id, "deleted": True})
     if not customer:
@@ -2329,8 +2465,8 @@ async def restore_customer(customer_id: str, current_user: User = Depends(get_cu
 @api_router.post("/product-categories")
 async def create_category(category_data: dict, current_user: User = Depends(get_current_user)):
     """Create product category"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     category = ProductCategory(
         company_id=current_user.company_id,
@@ -2343,8 +2479,8 @@ async def create_category(category_data: dict, current_user: User = Depends(get_
 @api_router.get("/product-categories")
 async def get_categories(current_user: User = Depends(get_current_user)):
     """Get all product categories"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     categories = await db.product_categories.find({"company_id": current_user.company_id}, {"_id": 0}).sort("name", 1).to_list(length=None)
     return categories
@@ -2353,8 +2489,8 @@ async def get_categories(current_user: User = Depends(get_current_user)):
 @api_router.post("/products")
 async def create_product(product_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new product"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     product = Product(
         company_id=current_user.company_id,
@@ -2374,8 +2510,8 @@ async def create_product(product_data: dict, current_user: User = Depends(get_cu
 @api_router.get("/products")
 async def get_products(include_deleted: bool = False, current_user: User = Depends(get_current_user)):
     """Get all products for company"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     query = {"company_id": current_user.company_id}
     if not include_deleted:
@@ -2387,8 +2523,8 @@ async def get_products(include_deleted: bool = False, current_user: User = Depen
 @api_router.put("/products/{product_id}")
 async def update_product(product_id: str, product_data: dict, current_user: User = Depends(get_current_user)):
     """Update product"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     product = await db.products.find_one({"id": product_id, "company_id": current_user.company_id})
     if not product:
@@ -2406,8 +2542,8 @@ async def update_product(product_id: str, product_data: dict, current_user: User
 @api_router.delete("/products/{product_id}")
 async def delete_product(product_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete product"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     product = await db.products.find_one({"id": product_id, "company_id": current_user.company_id})
     if not product:
@@ -2429,8 +2565,8 @@ async def delete_product(product_id: str, current_user: User = Depends(get_curre
 @api_router.put("/products/{product_id}/restore")
 async def restore_product(product_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted product"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     product = await db.products.find_one({"id": product_id, "company_id": current_user.company_id, "deleted": True})
     if not product:
@@ -2445,27 +2581,38 @@ async def restore_product(product_id: str, current_user: User = Depends(get_curr
     return {"message": "Product restored successfully"}
 
 # Invoice endpoints
-def generate_invoice_number():
-    """Generate invoice number: INV-25-MMDD-XX"""
+def generate_invoice_number(branch_code: str = "MAIN"):
+    """Generate invoice number: YYMMM_QQQQ_XXXXX format as per Sri Lankan VAT requirements
+    Example: 25JAN_MAIN_00001 (Year 2025, January, Main branch, Invoice #1)
+    """
     now = datetime.now(timezone.utc)
-    year = now.strftime("%y")
-    month_day = now.strftime("%m%d")
-    return f"INV-{year}-{month_day}"
+    yy = now.strftime("%y")  # Last 2 digits of year
+    mmm = now.strftime("%b").upper()  # First 3 letters of month in uppercase
+    qqqq = branch_code.upper() if branch_code else "MAIN"  # Branch/unit code
+    return f"{yy}{mmm}_{qqqq}"
 
 @api_router.post("/invoices")
 async def create_invoice(invoice_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new invoice"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
-    
-    # Generate invoice number with sequence
-    base_number = generate_invoice_number()
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
+    # Get company info for branch code
+    company = await db.companies.find_one({"id": current_user.company_id})
+    branch_code = company.get("branch_code", "MAIN") if company else "MAIN"
+
+    # Generate invoice number with sequence: YYMMM_QQQQ_XXXXX
+    base_number = generate_invoice_number(branch_code)
+
+    # Count invoices with same month prefix to get sequential number
     count = await db.invoices.count_documents({
         "company_id": current_user.company_id,
-        "invoice_number": {"$regex": f"^{base_number}"}
+        "invoice_number": {"$regex": f"^{base_number}_"}
     })
-    invoice_number = f"{base_number}-{str(count + 1).zfill(2)}"
-    
+
+    # Format: 25JAN_MAIN_00001
+    invoice_number = f"{base_number}_{str(count + 1).zfill(5)}"
+
     # Process items
     items = []
     for item_data in invoice_data["items"]:
@@ -2489,27 +2636,98 @@ async def create_invoice(invoice_data: dict, current_user: User = Depends(get_cu
                 {"id": item_data["product_id"], "company_id": current_user.company_id},
                 {"$inc": {"stock_quantity": -quantity}}
             )
-    
+
+    # Calculate subtotal (net amount excluding VAT)
     subtotal = sum([item["total"] for item in items])
-    
+
+    # Calculate VAT (18%)
+    vat_rate = 18.0
+    vat_amount = round(subtotal * (vat_rate / 100))
+
+    # Calculate total including VAT
+    total = subtotal + vat_amount
+
+    # Get place of supply from company or use provided value
+    place_of_supply = invoice_data.get("place_of_supply") or company.get("place_of_supply", "")
+
     invoice = Invoice(
         company_id=current_user.company_id,
         customer_id=invoice_data["customer_id"],
         invoice_number=invoice_number,
         invoice_date=invoice_data.get("invoice_date", datetime.now(timezone.utc).date().isoformat()),
         due_date=invoice_data.get("due_date"),
+        date_of_delivery=invoice_data.get("date_of_delivery"),
+        place_of_supply=place_of_supply,
         items=items,
         subtotal=subtotal,
-        total=subtotal,
+        vat_rate=vat_rate,
+        vat_amount=vat_amount,
+        total=total,
+        total_in_words=invoice_data.get("total_in_words"),
+        payment_mode=invoice_data.get("payment_mode"),
         notes=invoice_data.get("notes"),
         created_by=current_user.id,
         created_by_name=current_user.name
     )
-    
+
     await db.invoices.insert_one(invoice.model_dump())
     await log_activity(current_user.company_id, current_user.id, current_user.name, "CREATE_INVOICE", f"Created invoice: {invoice_number}")
-    
+
     return invoice.model_dump()
+
+@api_router.put("/invoices/{invoice_id}")
+async def update_invoice(invoice_id: str, invoice_data: dict, current_user: User = Depends(get_current_user)):
+    """Update an existing invoice (for adding missing VAT fields like date_of_delivery, place_of_supply, payment_mode)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
+    # Get existing invoice
+    existing_invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id})
+    if not existing_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Recalculate VAT if items are provided
+    if "items" in invoice_data and invoice_data["items"]:
+        items = []
+        for item_data in invoice_data["items"]:
+            quantity = float(item_data["quantity"])
+            unit_price = float(item_data["unit_price"])
+
+            item = InvoiceItem(
+                product_id=item_data.get("product_id"),
+                product_name=item_data["product_name"],
+                description=item_data.get("description"),
+                quantity=quantity,
+                unit_price=unit_price,
+                total=quantity * unit_price
+            )
+            items.append(item.model_dump())
+
+        # Calculate subtotal (net amount excluding VAT)
+        subtotal = sum([item["total"] for item in items])
+
+        # Calculate VAT (18%)
+        vat_rate = 18.0
+        vat_amount = round(subtotal * (vat_rate / 100))
+
+        # Calculate total including VAT
+        total = subtotal + vat_amount
+
+        invoice_data["items"] = items
+        invoice_data["subtotal"] = subtotal
+        invoice_data["vat_rate"] = vat_rate
+        invoice_data["vat_amount"] = vat_amount
+        invoice_data["total"] = total
+
+    # Update the invoice
+    await db.invoices.update_one(
+        {"id": invoice_id, "company_id": current_user.company_id},
+        {"$set": invoice_data}
+    )
+
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "UPDATE_INVOICE", f"Updated invoice: {existing_invoice.get('invoice_number')}")
+
+    return {"message": "Invoice updated successfully"}
 
 @api_router.get("/invoices")
 async def get_invoices(
@@ -2519,8 +2737,8 @@ async def get_invoices(
     current_user: User = Depends(get_current_user)
 ):
     """Get all invoices for company"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     query = {"company_id": current_user.company_id}
     if not include_deleted:
@@ -2536,8 +2754,8 @@ async def get_invoices(
 @api_router.get("/invoices/{invoice_id}")
 async def get_invoice(invoice_id: str, current_user: User = Depends(get_current_user)):
     """Get single invoice details"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id}, {"_id": 0})
     if not invoice:
@@ -2556,8 +2774,8 @@ async def get_invoice(invoice_id: str, current_user: User = Depends(get_current_
 @api_router.post("/invoices/{invoice_id}/payments")
 async def add_payment(invoice_id: str, payment_data: dict, current_user: User = Depends(get_current_user)):
     """Add payment to invoice"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id})
     if not invoice:
@@ -2591,8 +2809,8 @@ async def add_payment(invoice_id: str, payment_data: dict, current_user: User = 
 @api_router.delete("/invoices/{invoice_id}")
 async def delete_invoice(invoice_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete invoice"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id})
     if not invoice:
@@ -2613,8 +2831,8 @@ async def delete_invoice(invoice_id: str, current_user: User = Depends(get_curre
 @api_router.put("/invoices/{invoice_id}/restore")
 async def restore_invoice(invoice_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted invoice"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     invoice = await db.invoices.find_one({"id": invoice_id, "company_id": current_user.company_id, "deleted": True})
     if not invoice:
@@ -2639,8 +2857,8 @@ def generate_estimate_number():
 @api_router.post("/estimates")
 async def create_estimate(estimate_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new estimate"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     # Generate estimate number with sequence
     base_number = generate_estimate_number()
@@ -2690,8 +2908,8 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
 @api_router.get("/estimates")
 async def get_estimates(include_deleted: bool = False, current_user: User = Depends(get_current_user)):
     """Get all estimates for company"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     query = {"company_id": current_user.company_id}
     if not include_deleted:
@@ -2703,8 +2921,8 @@ async def get_estimates(include_deleted: bool = False, current_user: User = Depe
 @api_router.get("/estimates/{estimate_id}")
 async def get_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Get single estimate details"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id}, {"_id": 0})
     if not estimate:
@@ -2719,44 +2937,66 @@ async def get_estimate(estimate_id: str, current_user: User = Depends(get_curren
 @api_router.post("/estimates/{estimate_id}/convert")
 async def convert_estimate_to_invoice(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Convert estimate to invoice"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
-    
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id})
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
-    
-    # Generate invoice number
-    base_number = generate_invoice_number()
+
+    # Get company info for branch code and default place of supply
+    company = await db.companies.find_one({"id": current_user.company_id})
+    settings = await db.settings.find_one({"company_id": current_user.company_id})
+    branch_code = settings.get("branch_code", "MAIN") if settings else "MAIN"
+    place_of_supply = settings.get("place_of_supply", "") if settings else ""
+
+    # Generate invoice number with new VAT format: YYMMM_QQQQ_XXXXX
+    base_number = generate_invoice_number(branch_code)
     count = await db.invoices.count_documents({
         "company_id": current_user.company_id,
-        "invoice_number": {"$regex": f"^{base_number}"}
+        "invoice_number": {"$regex": f"^{base_number}_"}
     })
-    invoice_number = f"{base_number}-{str(count + 1).zfill(2)}"
-    
-    # Create invoice from estimate
+    invoice_number = f"{base_number}_{str(count + 1).zfill(5)}"
+
+    # Calculate subtotal from estimate items
+    subtotal = sum([item["total"] for item in estimate["items"]])
+
+    # Calculate VAT (18%)
+    vat_rate = 18.0
+    vat_amount = round(subtotal * (vat_rate / 100))
+
+    # Calculate total including VAT
+    total = subtotal + vat_amount
+
+    # Create invoice from estimate with VAT calculations
     invoice = Invoice(
         company_id=estimate["company_id"],
         customer_id=estimate["customer_id"],
         invoice_number=invoice_number,
         invoice_date=datetime.now(timezone.utc).date().isoformat(),
         due_date=None,
+        date_of_delivery=None,  # To be filled by user when editing
+        place_of_supply=place_of_supply,
         items=estimate["items"],
-        subtotal=estimate["subtotal"],
-        total=estimate["total"],
+        subtotal=subtotal,
+        vat_rate=vat_rate,
+        vat_amount=vat_amount,
+        total=total,
+        total_in_words=None,  # To be filled by user when editing
+        payment_mode=None,  # To be filled by user when editing
         notes=estimate.get("notes"),
         created_by=current_user.id,
         created_by_name=current_user.name
     )
-    
+
     await db.invoices.insert_one(invoice.model_dump())
-    
+
     # Update estimate status
     await db.estimates.update_one(
         {"id": estimate_id},
         {"$set": {"status": "converted"}}
     )
-    
+
     # Reduce stock for products
     for item in estimate["items"]:
         if item.get("product_id"):
@@ -2764,16 +3004,16 @@ async def convert_estimate_to_invoice(estimate_id: str, current_user: User = Dep
                 {"id": item["product_id"], "company_id": current_user.company_id},
                 {"$inc": {"stock_quantity": -item["quantity"]}}
             )
-    
+
     await log_activity(current_user.company_id, current_user.id, current_user.name, "CONVERT_ESTIMATE", f"Converted estimate {estimate['estimate_number']} to invoice {invoice_number}")
-    
+
     return invoice.model_dump()
 
 @api_router.delete("/estimates/{estimate_id}")
 async def delete_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Soft delete estimate"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id})
     if not estimate:
@@ -2794,8 +3034,8 @@ async def delete_estimate(estimate_id: str, current_user: User = Depends(get_cur
 @api_router.put("/estimates/{estimate_id}")
 async def update_estimate(estimate_id: str, estimate_data: dict, current_user: User = Depends(get_current_user)):
     """Update estimate"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id})
     if not estimate:
@@ -2843,27 +3083,81 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
 @api_router.put("/estimates/{estimate_id}/restore")
 async def restore_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
     """Restore deleted estimate"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
-    
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
     estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": True})
     if not estimate:
         raise HTTPException(status_code=404, detail="Deleted estimate not found")
-    
+
     await db.estimates.update_one(
         {"id": estimate_id, "company_id": current_user.company_id},
         {"$set": {"deleted": False}, "$unset": {"deleted_at": "", "deleted_by": ""}}
     )
     await log_activity(current_user.company_id, current_user.id, current_user.name, "RESTORE_ESTIMATE", f"Restored estimate: {estimate['estimate_number']}")
-    
+
     return {"message": "Estimate restored successfully"}
+
+@api_router.put("/estimates/{estimate_id}/approve")
+async def approve_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
+    """Approve an estimate (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
+    estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    await db.estimates.update_one(
+        {"id": estimate_id, "company_id": current_user.company_id},
+        {"$set": {
+            "approval_status": "approved",
+            "approved_by": current_user.id,
+            "approved_by_name": current_user.name,
+            "approved_at": datetime.now(timezone.utc).isoformat()
+        }, "$unset": {
+            "rejected_by": "",
+            "rejected_by_name": "",
+            "rejected_at": ""
+        }}
+    )
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "APPROVE_ESTIMATE", f"Approved estimate: {estimate['estimate_number']}")
+
+    return {"message": "Estimate approved successfully"}
+
+@api_router.put("/estimates/{estimate_id}/reject")
+async def reject_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
+    """Reject an estimate (admin/manager/accountant only)"""
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
+
+    estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    await db.estimates.update_one(
+        {"id": estimate_id, "company_id": current_user.company_id},
+        {"$set": {
+            "approval_status": "rejected",
+            "rejected_by": current_user.id,
+            "rejected_by_name": current_user.name,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }, "$unset": {
+            "approved_by": "",
+            "approved_by_name": "",
+            "approved_at": ""
+        }}
+    )
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "REJECT_ESTIMATE", f"Rejected estimate: {estimate['estimate_number']}")
+
+    return {"message": "Estimate rejected successfully"}
 
 # Company invoice settings
 @api_router.put("/company/invoice-settings")
 async def update_invoice_settings(settings_data: dict, current_user: User = Depends(get_current_user)):
     """Update company invoice settings"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     await db.companies.update_one(
         {"id": current_user.company_id},
@@ -2935,7 +3229,7 @@ async def get_attendance(
     # Filter by employee if provided
     if employee_id:
         query["employee_id"] = employee_id
-    elif current_user.role not in ["admin", "manager"]:
+    elif current_user.role not in ["admin", "manager", "accountant"]:
         # Regular employees can only see their own attendance
         query["employee_id"] = current_user.id
     
@@ -2979,8 +3273,8 @@ async def get_attendance(
 
 @api_router.post("/attendance")
 async def add_manual_attendance(attendance_data: dict, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Validate date is not in the future
     from datetime import date
@@ -3046,8 +3340,8 @@ async def add_manual_attendance(attendance_data: dict, current_user: User = Depe
 @api_router.put("/attendance/{attendance_id}")
 async def update_attendance(attendance_id: str, attendance_data: dict, current_user: User = Depends(get_current_user)):
     """Update attendance record (e.g., add check-out time)"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Get existing attendance
     attendance = await db.attendance.find_one({"id": attendance_id, "company_id": current_user.company_id})
@@ -3131,8 +3425,8 @@ async def get_attendance_history(attendance_id: str, current_user: User = Depend
 @api_router.put("/attendance/{attendance_id}/status")
 async def update_attendance_status(attendance_id: str, status_data: dict, current_user: User = Depends(get_current_user)):
     """Update attendance status with history tracking"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     # Get existing attendance
     attendance = await db.attendance.find_one({
@@ -3184,8 +3478,8 @@ async def update_attendance_status(attendance_id: str, status_data: dict, curren
 
 @api_router.delete("/attendance/{attendance_id}")
 async def delete_attendance(attendance_id: str, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Check if attendance exists and belongs to same company
     attendance = await db.attendance.find_one({"id": attendance_id, "company_id": current_user.company_id})
@@ -3210,12 +3504,12 @@ async def delete_attendance(attendance_id: str, current_user: User = Depends(get
 @api_router.get("/attendance/date/{date}")
 async def get_attendance_by_date(date: str, current_user: User = Depends(get_current_user)):
     """Get all attendance records for a specific date"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Get all employees in company with salary info
     employees = await db.users.find(
-        {"company_id": current_user.company_id, "role": {"$in": ["admin", "employee", "manager", "staff_member"]}},
+        {"company_id": current_user.company_id, "role": {"$in": ["admin", "employee", "manager", "accountant", "staff_member"]}},
         {"_id": 0, "id": 1, "name": 1, "employee_id": 1, "profile_pic": 1, "basic_salary": 1, "allowances": 1, "fixed_salary": 1}
     ).to_list(length=None)
     
@@ -3342,8 +3636,8 @@ async def get_attendance_by_date(date: str, current_user: User = Depends(get_cur
 
 @api_router.get("/attendance/deleted")
 async def get_deleted_attendance(current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     deleted_records = await db.deleted_attendance.find(
         {"company_id": current_user.company_id},
@@ -3356,8 +3650,8 @@ async def get_deleted_attendance(current_user: User = Depends(get_current_user))
 @api_router.post("/payroll/generate")
 async def generate_payroll(payroll_data: dict, current_user: User = Depends(get_current_user)):
     """Generate payroll for a specific month"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or Manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, Manager or Accountant access required")
     
     month = payroll_data["month"]  # Format: "YYYY-MM"
     year, month_num = month.split("-")
@@ -3565,7 +3859,7 @@ async def get_detailed_payroll(month: str, current_user: User = Depends(get_curr
     # Get all employees (include admin to match live payroll endpoint)
     employees = await db.users.find({
         "company_id": current_user.company_id,
-        "role": {"$in": ["admin", "employee", "staff_member", "manager"]}
+        "role": {"$in": ["admin", "employee", "staff_member", "manager", "accountant"]}
     }).to_list(length=None)
     
     print(f"DEBUG DETAILED PAYROLL: Found {len(employees)} employees for company {current_user.company_id}")
@@ -3827,7 +4121,7 @@ async def get_live_current_month_payroll(current_user: User = Depends(get_curren
     else:
         employees = await db.users.find({
             "company_id": current_user.company_id,
-            "role": {"$in": ["admin", "employee", "staff_member", "manager"]}
+            "role": {"$in": ["admin", "employee", "staff_member", "manager", "accountant"]}
         }).to_list(length=None)
     
     print(f"DEBUG LIVE PAYROLL: Found {len(employees)} employees for company {current_user.company_id}")
@@ -4133,8 +4427,8 @@ async def get_settings(current_user: User = Depends(get_current_user)):
 
 @api_router.put("/settings")
 async def update_settings(updates: SettingsUpdate, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -4155,8 +4449,8 @@ async def update_settings(updates: SettingsUpdate, current_user: User = Depends(
 
 @api_router.post("/settings/holidays")
 async def add_holiday(holiday: Holiday, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     result = await db.settings.update_one(
         {"company_id": current_user.company_id},
@@ -4172,8 +4466,8 @@ async def add_holiday(holiday: Holiday, current_user: User = Depends(get_current
 
 @api_router.delete("/settings/holidays/{date}")
 async def delete_holiday(date: str, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     result = await db.settings.update_one(
         {"company_id": current_user.company_id},
@@ -4214,8 +4508,8 @@ async def get_working_days(year: int, month: int, current_user: User = Depends(g
 # ============= BRANDING ENDPOINTS =============
 @api_router.post("/company/branding")
 async def upload_branding(file: UploadFile = File(...), type: str = Form(...), current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     if type not in ["logo", "favicon"]:
         raise HTTPException(status_code=400, detail="Invalid type. Must be 'logo' or 'favicon'")
@@ -4285,8 +4579,8 @@ async def upload_employee_profile_pic(
     employee_id: str = Form(...),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     try:
         # Read file and convert to base64
@@ -4311,8 +4605,8 @@ async def upload_employee_profile_pic(
 async def parse_device_import(request: DeviceImportParseRequest, current_user: User = Depends(get_current_user)):
     """Parse attendance device file - Direct Python parsing"""
     
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     print(f"DEBUG: Parsing device import, file length: {len(request.file_content)}")
     
@@ -4584,8 +4878,8 @@ Return ONLY the JSON response, no additional text.""",
 async def import_device_data(request: DeviceImportRequest, current_user: User = Depends(get_current_user)):
     """Import device attendance data with ID mapping"""
     
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Admin or manager access required")
+    if current_user.role not in ["admin", "manager", "accountant"]:
+        raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Create mapping dictionary
     id_mapping = {mapping.vendor_id: mapping.employee_id for mapping in request.mappings}

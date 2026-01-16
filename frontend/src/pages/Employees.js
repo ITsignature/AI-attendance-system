@@ -581,6 +581,7 @@ export default function Employees() {
                       <SelectContent>
                         <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="accountant">Accountant</SelectItem>
                         <SelectItem value="employee">Employee</SelectItem>
                         <SelectItem value="staff_member">Staff Member</SelectItem>
                       </SelectContent>
@@ -776,6 +777,8 @@ export default function Employees() {
                           ? 'bg-red-100 text-red-700'
                           : employee.role === 'manager'
                           ? 'bg-blue-100 text-blue-700'
+                          : employee.role === 'accountant'
+                          ? 'bg-purple-100 text-purple-700'
                           : employee.role === 'employee'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-gray-100 text-gray-700'
@@ -1001,6 +1004,8 @@ export default function Employees() {
                           ? 'bg-red-100 text-red-700'
                           : employee.role === 'manager'
                           ? 'bg-blue-100 text-blue-700'
+                          : employee.role === 'accountant'
+                          ? 'bg-purple-100 text-purple-700'
                           : employee.role === 'employee'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-gray-100 text-gray-700'
@@ -1396,6 +1401,7 @@ Operation Manager       Anjali  anjali@gmail.com        0760094691      2023/04/
                                 <SelectContent>
                                   <SelectItem value="employee">Employee</SelectItem>
                                   <SelectItem value="manager">Manager</SelectItem>
+                                  <SelectItem value="accountant">Accountant</SelectItem>
                                   <SelectItem value="admin">Admin</SelectItem>
                                   <SelectItem value="staff_member">Staff Member</SelectItem>
                                 </SelectContent>

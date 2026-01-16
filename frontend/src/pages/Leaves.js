@@ -8,14 +8,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Plus, Calendar, Trash2, Pencil } from 'lucide-react';
 
 export default function Leaves() {
   const [leaves, setLeaves] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingLeave, setEditingLeave] = useState(null);
   const [user, setUser] = useState(null);
   const [formData, setFormData] = useState({
+    employee_id: '',
     leave_type: 'annual',
     from_date: new Date().toISOString().split('T')[0],
     to_date: new Date().toISOString().split('T')[0],
@@ -26,6 +29,7 @@ export default function Leaves() {
     const userData = JSON.parse(localStorage.getItem('user'));
     setUser(userData);
     fetchLeaves();
+    fetchEmployees();
   }, []);
 
   const fetchLeaves = async () => {
@@ -39,39 +43,68 @@ export default function Leaves() {
     }
   };
 
+  const fetchEmployees = async () => {
+    try {
+      const response = await api.get('/employees');
+      setEmployees(response.data);
+    } catch (error) {
+      console.error('Failed to fetch employees');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/leaves', formData);
-      toast.success('Leave request submitted successfully');
+      if (editingLeave) {
+        await api.put(`/leaves/${editingLeave.id}`, formData);
+        toast.success('Leave updated successfully');
+      } else {
+        await api.post('/leaves', formData);
+        toast.success('Leave applied successfully');
+      }
       setDialogOpen(false);
       resetForm();
       fetchLeaves();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit leave request');
+      toast.error(error.response?.data?.detail || `Failed to ${editingLeave ? 'update' : 'apply'} leave`);
     }
   };
 
-  const handleStatusUpdate = async (leaveId, status) => {
+  const handleEdit = (leave) => {
+    setEditingLeave(leave);
+    setFormData({
+      employee_id: leave.employee_id,
+      leave_type: leave.leave_type,
+      from_date: leave.from_date,
+      to_date: leave.to_date,
+      reason: leave.reason,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleDelete = async (leaveId) => {
+    if (!window.confirm('Are you sure you want to delete this leave?')) return;
     try {
-      await api.put(`/leaves/${leaveId}`, { status });
-      toast.success(`Leave ${status} successfully`);
+      await api.delete(`/leaves/${leaveId}`);
+      toast.success('Leave deleted successfully');
       fetchLeaves();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update leave status');
+      toast.error(error.response?.data?.detail || 'Failed to delete leave');
     }
   };
 
   const resetForm = () => {
     setFormData({
+      employee_id: '',
       leave_type: 'annual',
       from_date: new Date().toISOString().split('T')[0],
       to_date: new Date().toISOString().split('T')[0],
       reason: '',
     });
+    setEditingLeave(null);
   };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant';
 
   if (loading) {
     return (
@@ -83,6 +116,9 @@ export default function Leaves() {
     );
   }
 
+  // Only show button for admin, manager, accountant
+  const canApplyLeave = isAdmin;
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -90,85 +126,104 @@ export default function Leaves() {
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900" style={{ fontFamily: 'Work Sans, sans-serif' }} data-testid="leaves-title">
             Leave Management
           </h1>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                data-testid="apply-leave-button"
-                onClick={resetForm}
-                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Apply Leave
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle style={{ fontFamily: 'Work Sans, sans-serif' }}>Apply for Leave</DialogTitle>
-                <DialogDescription>Submit your leave request</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Leave Type *</label>
-                  <Select value={formData.leave_type} onValueChange={(value) => setFormData({ ...formData, leave_type: value })}>
-                    <SelectTrigger data-testid="leave-type-select">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="annual">Annual Leave</SelectItem>
-                      <SelectItem value="casual">Casual Leave</SelectItem>
-                      <SelectItem value="sick">Sick Leave</SelectItem>
-                      <SelectItem value="no_pay">No Pay Leave</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {canApplyLeave && (
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  data-testid="apply-leave-button"
+                  onClick={resetForm}
+                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Apply Leave
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle style={{ fontFamily: 'Work Sans, sans-serif' }}>
+                    {editingLeave ? 'Edit Leave' : 'Apply Leave for Employee'}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {editingLeave ? 'Update leave details' : 'Select an employee and apply leave on their behalf'}
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">From Date *</label>
-                    <Input
-                      data-testid="from-date-input"
-                      type="date"
-                      value={formData.from_date}
-                      onChange={(e) => setFormData({ ...formData, from_date: e.target.value })}
+                    <label className="text-sm font-medium">Employee *</label>
+                    <Select value={formData.employee_id} onValueChange={(value) => setFormData({ ...formData, employee_id: value })}>
+                      <SelectTrigger data-testid="employee-select">
+                        <SelectValue placeholder="Select Employee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employees.map(emp => (
+                          <SelectItem key={emp.id} value={emp.id}>{emp.name} ({emp.employee_id || 'No ID'})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Leave Type *</label>
+                    <Select value={formData.leave_type} onValueChange={(value) => setFormData({ ...formData, leave_type: value })}>
+                      <SelectTrigger data-testid="leave-type-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="annual">Annual Leave</SelectItem>
+                        <SelectItem value="casual">Casual Leave</SelectItem>
+                        <SelectItem value="sick">Sick Leave</SelectItem>
+                        <SelectItem value="no_pay">No Pay Leave</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">From Date *</label>
+                      <Input
+                        data-testid="from-date-input"
+                        type="date"
+                        value={formData.from_date}
+                        onChange={(e) => setFormData({ ...formData, from_date: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">To Date *</label>
+                      <Input
+                        data-testid="to-date-input"
+                        type="date"
+                        value={formData.to_date}
+                        onChange={(e) => setFormData({ ...formData, to_date: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Reason *</label>
+                    <Textarea
+                      data-testid="reason-textarea"
+                      value={formData.reason}
+                      onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                      placeholder="Please provide a reason for the leave"
+                      rows={4}
                       required
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">To Date *</label>
-                    <Input
-                      data-testid="to-date-input"
-                      type="date"
-                      value={formData.to_date}
-                      onChange={(e) => setFormData({ ...formData, to_date: e.target.value })}
-                      required
-                    />
+                  <div className="flex justify-end gap-2 pt-4">
+                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      data-testid="submit-leave-button"
+                      type="submit"
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                    >
+                      {editingLeave ? 'Update Leave' : 'Apply Leave'}
+                    </Button>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Reason *</label>
-                  <Textarea
-                    data-testid="reason-textarea"
-                    value={formData.reason}
-                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                    placeholder="Please provide a reason for your leave"
-                    rows={4}
-                    required
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    data-testid="submit-leave-button"
-                    type="submit"
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                  >
-                    Submit Request
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
 
         {/* Leaves List */}
@@ -187,16 +242,8 @@ export default function Leaves() {
                           {leave.leave_type.charAt(0).toUpperCase() + leave.leave_type.slice(1)} Leave
                         </p>
                       </div>
-                      <span
-                        className={`text-xs px-3 py-1 rounded-full whitespace-nowrap ${
-                          leave.status === 'approved'
-                            ? 'bg-green-100 text-green-700'
-                            : leave.status === 'rejected'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}
-                      >
-                        {leave.status}
+                      <span className="text-xs px-3 py-1 rounded-full whitespace-nowrap bg-blue-100 text-blue-700">
+                        Applied
                       </span>
                     </div>
 
@@ -218,30 +265,32 @@ export default function Leaves() {
                       <p className="text-sm text-gray-700">{leave.reason}</p>
                     </div>
 
-                    {leave.approved_by && (
-                      <p className="text-xs text-gray-500">Reviewed by: {leave.approved_by}</p>
+                    {leave.applied_by && (
+                      <p className="text-xs text-gray-500">Applied by: {leave.applied_by}</p>
                     )}
                   </div>
 
-                  {isAdmin && leave.status === 'pending' && (
+                  {canApplyLeave && (
                     <div className="flex lg:flex-col gap-2">
                       <Button
-                        data-testid={`approve-leave-${leave.id}`}
+                        data-testid={`edit-leave-${leave.id}`}
                         size="sm"
-                        onClick={() => handleStatusUpdate(leave.id, 'approved')}
-                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                        variant="outline"
+                        onClick={() => handleEdit(leave)}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                       >
-                        <CheckCircle className="w-4 h-4 mr-1" />
-                        Approve
+                        <Pencil className="w-4 h-4 mr-1" />
+                        Edit
                       </Button>
                       <Button
-                        data-testid={`reject-leave-${leave.id}`}
+                        data-testid={`delete-leave-${leave.id}`}
                         size="sm"
-                        onClick={() => handleStatusUpdate(leave.id, 'rejected')}
-                        className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
+                        variant="outline"
+                        onClick={() => handleDelete(leave.id)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        <XCircle className="w-4 h-4 mr-1" />
-                        Reject
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Delete
                       </Button>
                     </div>
                   )}
@@ -253,8 +302,8 @@ export default function Leaves() {
 
         {leaves.length === 0 && (
           <div className="text-center py-12">
-            <Clock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No leave requests found</p>
+            <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500">No leaves found</p>
           </div>
         )}
       </div>

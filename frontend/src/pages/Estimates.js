@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -27,6 +27,7 @@ export default function Estimates() {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [editingEstimate, setEditingEstimate] = useState(null);
+  const [user, setUser] = useState(null);
   
   // Inline creation states
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
@@ -51,6 +52,8 @@ export default function Estimates() {
   });
 
   useEffect(() => {
+    const userData = JSON.parse(localStorage.getItem('user'));
+    setUser(userData);
     fetchEstimates();
     fetchCustomers();
     fetchProducts();
@@ -242,6 +245,34 @@ export default function Estimates() {
     }
   };
 
+  const handleApproveEstimate = async (estimateId) => {
+    try {
+      await api.put(`/estimates/${estimateId}/approve`);
+      toast.success('Estimate approved successfully', {
+        style: { background: '#10b981', color: 'white' }
+      });
+      fetchEstimates();
+    } catch (error) {
+      toast.error('Failed to approve estimate', {
+        style: { background: '#ef4444', color: 'white' }
+      });
+    }
+  };
+
+  const handleRejectEstimate = async (estimateId) => {
+    try {
+      await api.put(`/estimates/${estimateId}/reject`);
+      toast.success('Estimate rejected successfully', {
+        style: { background: '#10b981', color: 'white' }
+      });
+      fetchEstimates();
+    } catch (error) {
+      toast.error('Failed to reject estimate', {
+        style: { background: '#ef4444', color: 'white' }
+      });
+    }
+  };
+
   const addEstimateItem = () => {
     setEstimateForm({
       ...estimateForm,
@@ -363,6 +394,21 @@ export default function Estimates() {
                       <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusColor(estimate.status)}`}>
                         {estimate.status.toUpperCase()}
                       </span>
+                      {estimate.approval_status === 'approved' && (
+                        <span className="px-2 py-1 rounded text-xs font-semibold bg-green-100 text-green-700">
+                          APPROVED
+                        </span>
+                      )}
+                      {estimate.approval_status === 'rejected' && (
+                        <span className="px-2 py-1 rounded text-xs font-semibold bg-red-100 text-red-700">
+                          REJECTED
+                        </span>
+                      )}
+                      {estimate.approval_status === 'pending' && (
+                        <span className="px-2 py-1 rounded text-xs font-semibold bg-yellow-100 text-yellow-700">
+                          PENDING APPROVAL
+                        </span>
+                      )}
                     </div>
                     <div className="grid grid-cols-4 gap-4 text-sm">
                       <div>
@@ -408,6 +454,42 @@ export default function Estimates() {
                           <Eye className="w-4 h-4 mr-1" />
                           View
                         </Button>
+
+                        {/* Approve/Reject buttons - only for admin/manager/accountant */}
+                        {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && estimate.approval_status === 'pending' && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              onClick={() => handleApproveEstimate(estimate.id)}
+                            >
+                              <Check className="w-4 h-4 mr-1" />
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => handleRejectEstimate(estimate.id)}
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              Reject
+                            </Button>
+                          </>
+                        )}
+
+                        {/* Re-approve button for rejected estimates */}
+                        {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && estimate.approval_status === 'rejected' && (
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => handleApproveEstimate(estimate.id)}
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            Approve
+                          </Button>
+                        )}
+
                         {estimate.status !== 'converted' && (
                           <>
                             <Button
@@ -417,6 +499,7 @@ export default function Estimates() {
                               <ArrowRight className="w-4 h-4 mr-1" />
                               Convert to Invoice
                             </Button>
+                            {/* Edit button - all users can edit estimates */}
                             <Button
                               size="sm"
                               variant="outline"
@@ -427,6 +510,7 @@ export default function Estimates() {
                             </Button>
                           </>
                         )}
+                        {/* Delete button - all users can delete estimates */}
                         <Button
                           size="sm"
                           variant="outline"
@@ -790,7 +874,9 @@ export default function Estimates() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedEstimate.items.map((item, index) => (
+                      {selectedEstimate.items
+                        .filter(item => item.display_amounts !== false)
+                        .map((item, index) => (
                         <tr key={index} className="border-b">
                           <td className="p-2">
                             <div>

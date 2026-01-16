@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, Eye, DollarSign, Trash2, Filter, Archive, Download } from 'lucide-react';
+import { Plus, FileText, Eye, Edit, DollarSign, Trash2, Filter, Archive, Download } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -17,18 +17,22 @@ export default function Invoices() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const showDeleted = searchParams.get('view') === 'deleted';
-  
+
   const [invoices, setInvoices] = useState([]);
   const [deletedCount, setDeletedCount] = useState(0);
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [editingInvoice, setEditingInvoice] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [user, setUser] = useState(null);
   
   // Inline creation states
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
@@ -38,7 +42,7 @@ export default function Invoices() {
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCustomerData, setNewCustomerData] = useState({
-    name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: '',
+    name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: '', tin: '',
     bank_name: '', bank_branch: '', bank_account_number: '', bank_account_holder_name: ''
   });
   const [newProductData, setNewProductData] = useState({
@@ -49,6 +53,9 @@ export default function Invoices() {
     customer_id: '',
     invoice_date: new Date().toISOString().split('T')[0],
     due_date: getDefaultDueDate(),
+    date_of_delivery: new Date().toISOString().split('T')[0],
+    place_of_supply: '',
+    payment_mode: 'cash',
     notes: '',
     items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '' }]
   });
@@ -68,10 +75,13 @@ export default function Invoices() {
   });
 
   useEffect(() => {
+    const userData = JSON.parse(localStorage.getItem('user'));
+    setUser(userData);
     fetchInvoices();
     fetchCustomers();
     fetchProducts();
     fetchCategories();
+    fetchCompany();
     if (!showDeleted) {
       fetchDeletedCount();
     }
@@ -129,6 +139,15 @@ export default function Invoices() {
     }
   };
 
+  const fetchCompany = async () => {
+    try {
+      const response = await api.get('/company/info');
+      setCompany(response.data);
+    } catch (error) {
+      console.error('Failed to fetch company');
+    }
+  };
+
   // Inline category creation
   const handleAddNewCategory = async (e) => {
     e.preventDefault();
@@ -152,7 +171,7 @@ export default function Invoices() {
       const response = await api.post('/customers', newCustomerData);
       toast.success('Customer added successfully', { style: { background: '#10b981', color: 'white' } });
       setAddCustomerDialogOpen(false);
-      setNewCustomerData({ name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: '' });
+      setNewCustomerData({ name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: '', tin: '', bank_name: '', bank_branch: '', bank_account_number: '', bank_account_holder_name: '' });
       await fetchCustomers();
       // Auto-select the new customer
       setInvoiceForm({ ...invoiceForm, customer_id: response.data.id });
@@ -187,6 +206,30 @@ export default function Invoices() {
       fetchInvoices();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create invoice', { style: { background: '#ef4444', color: 'white' } });
+    }
+  };
+
+  const handleEditInvoice = (invoice) => {
+    setEditingInvoice(invoice);
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateInvoice = async (e) => {
+    e.preventDefault();
+    try {
+      const updateData = {
+        date_of_delivery: editingInvoice.date_of_delivery,
+        place_of_supply: editingInvoice.place_of_supply,
+        payment_mode: editingInvoice.payment_mode,
+        total_in_words: editingInvoice.total_in_words
+      };
+      await api.put(`/invoices/${editingInvoice.id}`, updateData);
+      toast.success('Invoice updated successfully', { style: { background: '#10b981', color: 'white' } });
+      setEditDialogOpen(false);
+      setEditingInvoice(null);
+      fetchInvoices();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update invoice', { style: { background: '#ef4444', color: 'white' } });
     }
   };
 
@@ -306,6 +349,9 @@ export default function Invoices() {
       customer_id: '',
       invoice_date: new Date().toISOString().split('T')[0],
       due_date: getDefaultDueDate(),
+      date_of_delivery: new Date().toISOString().split('T')[0],
+      place_of_supply: '',
+      payment_mode: 'cash',
       notes: '',
       items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '' }]
     });
@@ -363,9 +409,9 @@ export default function Invoices() {
           </h1>
           <div className="flex gap-2">
             {(deletedCount > 0 || showDeleted) && (
-              <Button 
-                variant={showDeleted ? "default" : "outline"} 
-                size="sm" 
+              <Button
+                variant={showDeleted ? "default" : "outline"}
+                size="sm"
                 onClick={() => {
                   if (showDeleted) {
                     setSearchParams({});
@@ -378,10 +424,12 @@ export default function Invoices() {
                 <Archive className="w-4 h-4" />
               </Button>
             )}
-            <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Create Invoice
-            </Button>
+            {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && (
+              <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Create Invoice
+              </Button>
+            )}
           </div>
         </div>
 
@@ -460,6 +508,16 @@ export default function Invoices() {
                           <Eye className="w-4 h-4 mr-1" />
                           View
                         </Button>
+                        {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEditInvoice(invoice)}
+                          >
+                            <Edit className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                        )}
                         {invoice.status !== 'paid' && (
                           <Button
                             size="sm"
@@ -472,14 +530,16 @@ export default function Invoices() {
                             Add Payment
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => handleDeleteInvoice(invoice.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleDeleteInvoice(invoice.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </>
                     )}
                   </div>
@@ -551,6 +611,48 @@ export default function Invoices() {
                     value={invoiceForm.due_date}
                     onChange={(e) => setInvoiceForm({ ...invoiceForm, due_date: e.target.value })}
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-6">
+                  <label className="block text-xs font-medium mb-1">Date of Delivery *</label>
+                  <Input
+                    type="date"
+                    value={invoiceForm.date_of_delivery}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, date_of_delivery: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="col-span-6">
+                  <label className="block text-xs font-medium mb-1">Place of Supply *</label>
+                  <Input
+                    value={invoiceForm.place_of_supply}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, place_of_supply: e.target.value })}
+                    placeholder="e.g., Colombo"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-6">
+                  <label className="block text-xs font-medium mb-1">Payment Mode *</label>
+                  <Select
+                    value={invoiceForm.payment_mode}
+                    onValueChange={(value) => setInvoiceForm({ ...invoiceForm, payment_mode: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="credit">Credit</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -683,70 +785,146 @@ export default function Invoices() {
                   </Button>
                 </div>
               </DialogHeader>
-              <div id="invoice-pdf-content" className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600">Invoice Number</p>
-                      <p className="font-bold text-lg">{selectedInvoice.invoice_number}</p>
+              <div id="invoice-pdf-content" className="space-y-4 p-4 bg-white">
+                {/* Title */}
+                <div className="text-center border-b-2 pb-2 mb-4">
+                  <h1 className="text-3xl font-bold">TAX INVOICE</h1>
+                </div>
+
+                {/* Supplier and Purchaser Details */}
+                <div className="grid grid-cols-2 gap-6 mb-4">
+                  {/* Supplier (Company) - Left */}
+                  <div className="border-2 p-4 rounded bg-blue-50">
+                    <div className="text-sm space-y-2">
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Supplier's TIN:</span>
+                        <p className="text-sm">{company?.tin || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Supplier's Name:</span>
+                        <p className="text-sm font-semibold">{company?.name || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Address:</span>
+                        <p className="text-sm">{company?.address || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Telephone No:</span>
+                        <p className="text-sm">{company?.phone || 'N/A'}</p>
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Purchaser (Customer) - Right */}
+                  <div className="border-2 p-4 rounded bg-green-50">
+                    <div className="text-sm space-y-2">
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Purchaser's TIN:</span>
+                        <p className="text-sm">{selectedInvoice.customer?.tin || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Purchaser's Name:</span>
+                        <p className="text-sm font-semibold">{selectedInvoice.customer?.name || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Address:</span>
+                        <p className="text-sm">{selectedInvoice.customer?.address || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-gray-700">Telephone No:</span>
+                        <p className="text-sm">{selectedInvoice.customer?.phone || 'N/A'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Invoice Details */}
+                <div className="grid grid-cols-3 gap-4 border p-3 rounded bg-gray-50 mb-4">
+                  <div>
+                    <p className="text-xs text-gray-600 mb-1">Invoice Number</p>
+                    <p className="font-bold">{selectedInvoice.invoice_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600 mb-1">Date of Invoice</p>
+                    <p className="font-semibold">{selectedInvoice.invoice_date}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600 mb-1">Date of Delivery</p>
+                    <p className="font-semibold">{selectedInvoice.date_of_delivery || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600 mb-1">Place of Supply</p>
+                    <p className="font-semibold">{selectedInvoice.place_of_supply || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600 mb-1">Payment Mode</p>
+                    <p className="font-semibold capitalize">{selectedInvoice.payment_mode?.replace('_', ' ') || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600 mb-1">Status</p>
                     <div>
-                      <p className="text-sm text-gray-600">Status</p>
-                      <span className={`inline-block px-3 py-1 rounded text-sm font-semibold ${getStatusColor(selectedInvoice.status)}`}>
+                      <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${getStatusColor(selectedInvoice.status)}`}>
                         {selectedInvoice.status.toUpperCase()}
                       </span>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Customer</p>
-                      <p className="font-semibold">{selectedInvoice.customer?.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Date</p>
-                      <p className="font-semibold">{selectedInvoice.invoice_date}</p>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="font-semibold mb-2">Items</h3>
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
+                  <h3 className="font-semibold mb-3 text-sm">DESCRIPTION OF GOODS / SERVICES</h3>
+                  <table className="w-full border">
+                    <thead className="bg-gray-100 border-b-2">
                       <tr>
-                        <th className="text-left p-2 text-sm">Item</th>
-                        <th className="text-right p-2 text-sm">Qty</th>
-                        <th className="text-right p-2 text-sm">Price</th>
-                        <th className="text-right p-2 text-sm">Total</th>
+                        <th className="text-left p-2 text-sm border-r">Description</th>
+                        <th className="text-right p-2 text-sm border-r">Quantity</th>
+                        <th className="text-right p-2 text-sm border-r">Unit Price (Rs)</th>
+                        <th className="text-right p-2 text-sm">Value (Rs)</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedInvoice.items.map((item, index) => (
                         <tr key={index} className="border-b">
-                          <td className="p-2">{item.product_name}</td>
-                          <td className="text-right p-2">{item.quantity}</td>
-                          <td className="text-right p-2">Rs {item.unit_price.toFixed(2)}</td>
-                          <td className="text-right p-2">Rs {item.total.toFixed(2)}</td>
+                          <td className="p-2 border-r">{item.product_name}</td>
+                          <td className="text-right p-2 border-r">{item.quantity}</td>
+                          <td className="text-right p-2 border-r">{item.unit_price.toLocaleString()}</td>
+                          <td className="text-right p-2">{item.total.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="bg-gray-50 font-bold">
-                      <tr>
-                        <td colSpan="3" className="text-right p-2">Total</td>
-                        <td className="text-right p-2 text-green-600">Rs {selectedInvoice.total.toFixed(2)}</td>
+                    <tfoot className="bg-gray-50">
+                      <tr className="border-t-2">
+                        <td colSpan="3" className="text-right p-2 font-semibold border-r">Value of Supply (Net - Excluding VAT)</td>
+                        <td className="text-right p-2 font-semibold">Rs {(selectedInvoice.subtotal || 0).toLocaleString()}</td>
                       </tr>
                       <tr>
-                        <td colSpan="3" className="text-right p-2">Paid</td>
-                        <td className="text-right p-2">Rs {selectedInvoice.amount_paid.toFixed(2)}</td>
+                        <td colSpan="3" className="text-right p-2 border-r">VAT Charged ({selectedInvoice.vat_rate || 18}%)</td>
+                        <td className="text-right p-2">Rs {(selectedInvoice.vat_amount || 0).toLocaleString()}</td>
                       </tr>
-                      <tr>
-                        <td colSpan="3" className="text-right p-2">Balance</td>
-                        <td className="text-right p-2 text-red-600">Rs {(selectedInvoice.total - selectedInvoice.amount_paid).toFixed(2)}</td>
+                      <tr className="font-bold border-t-2 bg-gray-200">
+                        <td colSpan="3" className="text-right p-2 border-r">TOTAL (Including VAT)</td>
+                        <td className="text-right p-2 text-lg">Rs {selectedInvoice.total.toLocaleString()}</td>
+                      </tr>
+                      {selectedInvoice.total_in_words && (
+                        <tr>
+                          <td colSpan="4" className="text-left p-2 italic text-sm">
+                            <span className="font-semibold">Amount in Words:</span> {selectedInvoice.total_in_words}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-t">
+                        <td colSpan="3" className="text-right p-2 border-r">Amount Paid</td>
+                        <td className="text-right p-2">Rs {selectedInvoice.amount_paid.toLocaleString()}</td>
+                      </tr>
+                      <tr className="font-bold">
+                        <td colSpan="3" className="text-right p-2 border-r">Balance Due</td>
+                        <td className="text-right p-2 text-red-600">Rs {(selectedInvoice.total - selectedInvoice.amount_paid).toLocaleString()}</td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
 
                 {selectedInvoice.payments && selectedInvoice.payments.length > 0 && (
-                  <div>
+                  <div className="border-t pt-4">
                     <h3 className="font-semibold mb-2">Payment History</h3>
                     <div className="space-y-2">
                       {selectedInvoice.payments.map((payment, index) => (
@@ -761,6 +939,18 @@ export default function Invoices() {
                     </div>
                   </div>
                 )}
+
+                {/* Footer Note - Gazette Requirement */}
+                <div className="border-t pt-4 mt-4">
+                  <p className="text-xs text-gray-600 text-center italic">
+                    This invoice must be retained for a period of five years as per VAT regulations.
+                  </p>
+                  {company?.name && (
+                    <p className="text-xs text-gray-500 text-center mt-2">
+                      Generated by {company.name}
+                    </p>
+                  )}
+                </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -854,6 +1044,24 @@ export default function Invoices() {
               </div>
               <div className="grid grid-cols-12 gap-4">
                 <div className="col-span-6">
+                  <label className="block text-sm font-medium mb-1">TIN (Tax ID)</label>
+                  <Input
+                    value={newCustomerData.tin}
+                    onChange={(e) => setNewCustomerData({ ...newCustomerData, tin: e.target.value })}
+                    placeholder="Tax Identification Number"
+                  />
+                </div>
+                <div className="col-span-6">
+                  <label className="block text-sm font-medium mb-1">City</label>
+                  <Input
+                    value={newCustomerData.city}
+                    onChange={(e) => setNewCustomerData({ ...newCustomerData, city: e.target.value })}
+                    placeholder="Enter city"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-6">
                   <label className="block text-sm font-medium mb-1">Phone</label>
                   <Input
                     value={newCustomerData.phone}
@@ -873,21 +1081,13 @@ export default function Invoices() {
                 </div>
               </div>
               <div className="grid grid-cols-12 gap-4">
-                <div className="col-span-6">
+                <div className="col-span-12">
                   <label className="block text-sm font-medium mb-1">Email</label>
                   <Input
                     type="email"
                     value={newCustomerData.email}
                     onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value })}
                     placeholder="customer@example.com"
-                  />
-                </div>
-                <div className="col-span-6">
-                  <label className="block text-sm font-medium mb-1">City</label>
-                  <Input
-                    value={newCustomerData.city}
-                    onChange={(e) => setNewCustomerData({ ...newCustomerData, city: e.target.value })}
-                    placeholder="Enter city"
                   />
                 </div>
               </div>
@@ -1077,6 +1277,95 @@ export default function Invoices() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Edit Invoice Dialog */}
+        {editingInvoice && (
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Edit Invoice - {editingInvoice.invoice_number}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleUpdateInvoice} className="space-y-4">
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-6">
+                    <label className="block text-xs font-medium mb-1">Date of Delivery *</label>
+                    <Input
+                      type="date"
+                      value={editingInvoice.date_of_delivery || ''}
+                      onChange={(e) => setEditingInvoice({ ...editingInvoice, date_of_delivery: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="col-span-6">
+                    <label className="block text-xs font-medium mb-1">Place of Supply *</label>
+                    <Input
+                      value={editingInvoice.place_of_supply || ''}
+                      onChange={(e) => setEditingInvoice({ ...editingInvoice, place_of_supply: e.target.value })}
+                      placeholder="e.g., Colombo"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-6">
+                    <label className="block text-xs font-medium mb-1">Payment Mode *</label>
+                    <Select
+                      value={editingInvoice.payment_mode || 'cash'}
+                      onValueChange={(value) => setEditingInvoice({ ...editingInvoice, payment_mode: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payment mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                        <SelectItem value="card">Card</SelectItem>
+                        <SelectItem value="credit">Credit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-6">
+                    <label className="block text-xs font-medium mb-1">Total in Words</label>
+                    <Input
+                      value={editingInvoice.total_in_words || ''}
+                      onChange={(e) => setEditingInvoice({ ...editingInvoice, total_in_words: e.target.value })}
+                      placeholder="e.g., Five Thousand Rupees Only"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t pt-4 mt-4">
+                  <p className="text-sm text-gray-600 mb-2">Invoice Summary:</p>
+                  <div className="grid grid-cols-3 gap-4 bg-gray-50 p-3 rounded">
+                    <div>
+                      <p className="text-xs text-gray-600">Subtotal (Net)</p>
+                      <p className="font-semibold">Rs {(editingInvoice.subtotal || 0).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">VAT ({editingInvoice.vat_rate || 18}%)</p>
+                      <p className="font-semibold">Rs {(editingInvoice.vat_amount || 0).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Total (Inc. VAT)</p>
+                      <p className="font-semibold text-green-600">Rs {(editingInvoice.total || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">
+                    Update Invoice
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </Layout>
   );

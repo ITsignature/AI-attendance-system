@@ -375,7 +375,40 @@ export default function CompanySettings() {
               <p className="text-sm text-gray-600 mb-4">
                 These details will appear on your invoices and estimates
               </p>
-              
+
+              {/* Tax Invoice Requirements (Sri Lankan VAT) */}
+              <div className="border-b pb-4 mb-4">
+                <h3 className="font-semibold mb-3 text-blue-700">Tax Invoice Details (VAT Requirements)</h3>
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-4">
+                    <label className="text-xs text-gray-600 block mb-1">Tax Identification Number (TIN) *</label>
+                    <Input
+                      placeholder="Enter TIN"
+                      value={formData?.tin || ''}
+                      onChange={(e) => handleFormChange({ tin: e.target.value })}
+                    />
+                  </div>
+                  <div className="col-span-4">
+                    <label className="text-xs text-gray-600 block mb-1">Place of Supply *</label>
+                    <Input
+                      placeholder="e.g., Colombo"
+                      value={formData?.place_of_supply || ''}
+                      onChange={(e) => handleFormChange({ place_of_supply: e.target.value })}
+                    />
+                  </div>
+                  <div className="col-span-4">
+                    <label className="text-xs text-gray-600 block mb-1">Branch Code (for invoices) *</label>
+                    <Input
+                      placeholder="e.g., MAIN or BR01"
+                      value={formData?.branch_code || ''}
+                      onChange={(e) => handleFormChange({ branch_code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) })}
+                      maxLength={4}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Max 4 characters (letters/numbers)</p>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-12 gap-4">
                 <div className="col-span-6">
                   <Input

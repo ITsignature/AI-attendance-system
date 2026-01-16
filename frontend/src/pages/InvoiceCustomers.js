@@ -28,6 +28,7 @@ export default function InvoiceCustomers() {
     whatsapp: '',
     city: '',
     address: '',
+    tin: '',
     bank_name: '',
     bank_branch: '',
     bank_account_number: '',
@@ -114,6 +115,7 @@ export default function InvoiceCustomers() {
       whatsapp: customer.whatsapp || '',
       city: customer.city || '',
       address: customer.address || '',
+      tin: customer.tin || '',
       bank_name: customer.bank_name || '',
       bank_branch: customer.bank_branch || '',
       bank_account_number: customer.bank_account_number || '',
@@ -147,6 +149,7 @@ export default function InvoiceCustomers() {
       whatsapp: '',
       city: '',
       address: '',
+      tin: '',
       bank_name: '',
       bank_branch: '',
       bank_account_number: '',
@@ -225,6 +228,23 @@ export default function InvoiceCustomers() {
                         value={formData.company_name}
                         onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
                         placeholder="Company Name"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-6">
+                      <Input
+                        value={formData.tin}
+                        onChange={(e) => setFormData({ ...formData, tin: e.target.value })}
+                        placeholder="Tax Identification Number (TIN)"
+                      />
+                    </div>
+                    <div className="col-span-6">
+                      <Input
+                        value={formData.city}
+                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                        placeholder="City"
                       />
                     </div>
                   </div>

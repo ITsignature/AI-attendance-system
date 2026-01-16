@@ -143,6 +143,19 @@ export default function Payroll() {
     return { monthName, year };
   };
 
+  // Filter employees based on user role
+  const filterEmployeesByRole = (employees) => {
+    if (!user) return employees;
+
+    // If user is employee or staff_member, show only their own salary
+    if (user.role === 'employee' || user.role === 'staff_member') {
+      return employees.filter(emp => emp.employee_id === user.id);
+    }
+
+    // Admin, manager, accountant can see all employees
+    return employees;
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -315,7 +328,7 @@ export default function Payroll() {
               <>
                 {/* Employee Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {detailedPayroll.employees.sort((a, b) => a.employee_name.localeCompare(b.employee_name)).map((emp) => (
+                    {filterEmployeesByRole(detailedPayroll.employees).sort((a, b) => a.employee_name.localeCompare(b.employee_name)).map((emp) => (
                     <Card key={emp.employee_id} className="hover:shadow-lg transition-shadow">
                       <CardContent className="p-6">
                         <div className="space-y-4">
@@ -539,7 +552,7 @@ export default function Payroll() {
 
                     {/* Body */}
                     <tbody>
-                      {detailedPayroll.employees.sort((a, b) => a.employee_name.localeCompare(b.employee_name)).map((emp, index) => {
+                      {filterEmployeesByRole(detailedPayroll.employees).sort((a, b) => a.employee_name.localeCompare(b.employee_name)).map((emp, index) => {
                         const daySalary = emp.working_days > 0 ? (emp.basic_salary / emp.working_days) : 0;
                         const perMinuteSalary = emp.salary_per_minute || 0;
                         const earnings = emp.earnings || 0; // Use backend calculated earnings
@@ -649,37 +662,37 @@ export default function Payroll() {
                           TOTAL
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + emp.basic_salary, 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + emp.basic_salary, 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs">-</td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs">-</td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + (emp.earnings || 0), 0).toLocaleString(undefined, {maximumFractionDigits: 2})}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + (emp.earnings || 0), 0).toLocaleString(undefined, {maximumFractionDigits: 2})}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-center text-xs">-</td>
                         <td className="border border-gray-300 px-2 py-1 text-center text-xs">-</td>
                         <td className="border border-gray-300 px-2 py-1 text-center text-xs">-</td>
                         <td className="border border-gray-300 px-2 py-1 text-center text-xs">-</td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + emp.late_deduction, 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + emp.late_deduction, 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + emp.allowances, 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + emp.allowances, 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs text-green-600">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + (emp.extra_payment || 0), 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + (emp.extra_payment || 0), 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs text-red-600">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + emp.advances, 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + emp.advances, 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs text-red-600">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + (emp.loan_deduction || 0), 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + (emp.loan_deduction || 0), 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs text-red-600">
-                          {detailedPayroll.employees.reduce((sum, emp) => sum + emp.other_deductions, 0).toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + emp.other_deductions, 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-right text-xs font-bold text-green-700 bg-green-200">
-                          {detailedPayroll.total_net.toLocaleString()}
+                          {filterEmployeesByRole(detailedPayroll.employees).reduce((sum, emp) => sum + emp.net_salary, 0).toLocaleString()}
                         </td>
                         <td className="border border-gray-300 px-2 py-1 text-center text-xs">-</td>
                       </tr>

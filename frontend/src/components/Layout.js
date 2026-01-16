@@ -149,28 +149,28 @@ export default function Layout({ children }) {
     }
   };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant';
 
   const menuItems = [
-    { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager', 'employee', 'staff_member'] },
-    { path: '/employees', label: 'Employees', icon: Users, roles: ['admin', 'manager'] },
-    { path: '/attendance', label: 'Attendance', icon: Calendar, roles: ['admin', 'manager', 'employee', 'staff_member'] },
-    { path: '/location-reports', label: 'Location Reports', icon: MapPin, roles: ['admin', 'manager'], requiresLocationTracking: true },
-    { path: '/payroll', label: 'Payroll', icon: Banknote, roles: ['admin', 'manager', 'employee', 'staff_member'] },
-    { 
-      label: 'Apply', 
-      icon: FileText, 
-      roles: ['admin', 'manager'],
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager', 'accountant', 'employee', 'staff_member'] },
+    { path: '/employees', label: 'Employees', icon: Users, roles: ['admin', 'manager', 'accountant'] },
+    { path: '/attendance', label: 'Attendance', icon: Calendar, roles: ['admin', 'manager', 'accountant', 'employee', 'staff_member'] },
+    { path: '/location-reports', label: 'Location Reports', icon: MapPin, roles: ['admin', 'manager', 'accountant'], requiresLocationTracking: true },
+    { path: '/payroll', label: 'Payroll', icon: Banknote, roles: ['admin', 'manager', 'accountant', 'employee', 'staff_member'] },
+    {
+      label: 'Apply',
+      icon: FileText,
+      roles: ['admin', 'manager', 'accountant'],
       isDropdown: true,
       children: [
         { path: '/leaves', label: 'Leaves', icon: FileText },
         { path: '/advances', label: 'Advances', icon: Wallet },
       ]
     },
-    { 
-      label: 'Invoicing', 
-      icon: FileText, 
-      roles: ['admin', 'manager'],
+    {
+      label: 'Invoicing',
+      icon: FileText,
+      roles: ['admin', 'manager', 'accountant', 'employee', 'staff_member'],
       isDropdown: true,
       requiresInvoicing: true,
       children: [
@@ -184,8 +184,8 @@ export default function Layout({ children }) {
 
   // Profile section items (shown at bottom)
   const profileMenuItems = [
-    { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin', 'manager'], smaller: true },
-    { path: '/activity-logs', label: 'Activity Logs', icon: FileText, roles: ['admin', 'manager'], smaller: true },
+    { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin', 'manager', 'accountant'], smaller: true },
+    { path: '/activity-logs', label: 'Activity Logs', icon: FileText, roles: ['admin', 'manager', 'accountant'], smaller: true },
   ];
 
   const filteredMenuItems = menuItems.filter((item) => {
