@@ -831,10 +831,10 @@ export default function Estimates() {
         {/* View Estimate Dialog */}
         {selectedEstimate && (
           <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <div className="flex items-center justify-between">
-                  <DialogTitle>Estimate Details</DialogTitle>
+                  <DialogTitle>Estimate Preview</DialogTitle>
                   <Button
                     size="sm"
                     onClick={handleDownloadEstimatePDF}
@@ -845,81 +845,114 @@ export default function Estimates() {
                   </Button>
                 </div>
               </DialogHeader>
-              <div id="estimate-pdf-content" className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600">Estimate Number</p>
-                      <p className="font-bold text-lg">{selectedEstimate.estimate_number}</p>
+              <div id="estimate-pdf-content" className="bg-white px-12">
+                {/* Letterhead Header Image with Date Box Overlay */}
+                <div className="relative mb-0">
+                  <img
+                    src="/letterhead-header.jpg"
+                    alt="Letterhead"
+                    className="w-full h-auto"
+                  />
+                  {/* Date and Estimate Number Box - Positioned over the diagonal lines area */}
+                  <div className="absolute top-24 right-0 border-2 border-green-600 rounded-lg p-2 bg-white min-w-[160px]">
+                    <div className="mb-1">
+                      <p className="text-xs font-semibold">Date:</p>
+                      <p className="text-sm">{selectedEstimate.estimate_date}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Status</p>
-                      <span className={`inline-block px-3 py-1 rounded text-sm font-semibold ${getStatusColor(selectedEstimate.status)}`}>
-                        {selectedEstimate.status.toUpperCase()}
-                      </span>
+                      <p className="text-xs font-semibold">Quotation No:</p>
+                      <p className="text-sm">{selectedEstimate.estimate_number}</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Customer</p>
-                      <p className="font-semibold">{selectedEstimate.customer?.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Date</p>
-                      <p className="font-semibold">{selectedEstimate.estimate_date}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Valid Until</p>
-                      <p className="font-semibold">{selectedEstimate.valid_until}</p>
-                    </div>
-                    {selectedEstimate.notes && (
-                      <div className="col-span-2">
-                        <p className="text-sm text-gray-600">Notes</p>
-                        <p className="font-semibold">{selectedEstimate.notes}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                <div>
-                  <h3 className="font-semibold mb-2">Items</h3>
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="text-left p-2 text-sm">Item</th>
-                        <th className="text-right p-2 text-sm">Qty</th>
-                        <th className="text-right p-2 text-sm">Price</th>
-                        <th className="text-right p-2 text-sm">Total</th>
+                <div className="pb-8 mt-3">
+
+                  {/* Green and Yellow Line */}
+                  <div className="mb-1">
+                    <div className="h-2 bg-green-600"></div>
+                    <div className="h-1 bg-yellow-400"></div>
+                  </div>
+
+                  {/* Quotation Title */}
+                  <div className="mb-4 mt-2">
+                    <h2 className="text-2xl font-bold">Quotation</h2>
+                  </div>
+
+                {/* Customer Name and Description */}
+                <div className="mb-4">
+                  <p className="text-lg font-bold mb-1">{selectedEstimate.customer?.name}</p>
+                  {selectedEstimate.notes && (
+                    <p className="text-sm text-gray-700">{selectedEstimate.notes}</p>
+                  )}
+                </div>
+
+                {/* Items Table */}
+                <div className="mb-6">
+                  <table className="w-full border-collapse border-2 border-black">
+                    <thead>
+                      <tr className="bg-white">
+                        <th className="border border-black text-left p-3 font-semibold">Item</th>
+                        <th className="border border-black text-center p-3 font-semibold">Size</th>
+                        <th className="border border-black text-center p-3 font-semibold">Qty.</th>
+                        <th className="border border-black text-center p-3 font-semibold">Unit Price</th>
+                        <th className="border border-black text-right p-3 font-semibold">Amount</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedEstimate.items
                         .filter(item => item.display_amounts !== false)
                         .map((item, index) => (
-                        <tr key={index} className="border-b">
-                          <td className="p-2">
+                        <tr key={index}>
+                          <td className="border border-black p-3">
                             <div>
-                              <p className="font-semibold">{item.product_name}</p>
-                              {item.description && <p className="text-sm text-gray-600">{item.description}</p>}
+                              <p className="font-bold mb-1">{item.product_name}</p>
+                              {item.description && (
+                                <div className="text-sm text-gray-700">
+                                  {item.description.split('\n').map((line, i) => (
+                                    <p key={i} className="ml-2">• {line}</p>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </td>
-                          <td className="text-right p-2">{item.quantity}</td>
-                          <td className="text-right p-2">
-                            {selectedEstimate.display_total_amounts !== false ? `Rs ${item.unit_price.toFixed(2)}` : ''}
+                          <td className="border border-black text-center p-3"></td>
+                          <td className="border border-black text-center p-3">{item.quantity}</td>
+                          <td className="border border-black text-center p-3">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs.${item.unit_price.toFixed(2)}` : ''}
                           </td>
-                          <td className="text-right p-2">
-                            {selectedEstimate.display_total_amounts !== false ? `Rs ${item.total.toFixed(2)}` : ''}
+                          <td className="border border-black text-right p-3">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs.${item.total.toFixed(2)}` : ''}
                           </td>
                         </tr>
                       ))}
-                    </tbody>
-                    <tfoot className="bg-gray-50 font-bold">
-                      <tr>
-                        <td colSpan="3" className="text-right p-2">Total</td>
-                        <td className="text-right p-2 text-green-600">
-                          {selectedEstimate.display_total_amounts !== false ? `Rs ${selectedEstimate.total.toFixed(2)}` : ''}
+                      <tr className="bg-white">
+                        <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
+                        <td className="border border-black text-right p-3 font-bold">
+                          {selectedEstimate.display_total_amounts !== false ? `Rs.${selectedEstimate.total.toFixed(2)}` : ''}
                         </td>
                       </tr>
-                    </tfoot>
+                    </tbody>
                   </table>
+                </div>
+
+                {/* Terms and Conditions */}
+                <div className="mb-6 text-sm">
+                  <p className="mb-2">
+                    An advance of 70% (Seventy Percent) is requested at the time of placing of the order. This quotation is valid for 30 Days.
+                  </p>
+                  <p>
+                    The online payment to be made to "<strong>Bank Name - NDB Bank | Acc.Name - Ekma Digital Solutions Pvt Ltd | Acc. Number- 101000707296 | Branch - Boralesgamuwa</strong>"
+                  </p>
+                </div>
+
+                {/* Footer Section */}
+                <div className="space-y-1">
+                  <p className="text-base">Thank you</p>
+                  <p className="text-base mb-16">Your truly,</p>
+                  <p className="text-base font-semibold">S. G. Jamitha</p>
+                  <p className="text-base">Ekma Digital Solutions (Private) Limited.</p>
+                </div>
                 </div>
               </div>
             </DialogContent>

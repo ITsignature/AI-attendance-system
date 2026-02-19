@@ -2852,26 +2852,40 @@ async def restore_invoice(invoice_id: str, current_user: User = Depends(get_curr
     return {"message": "Invoice restored successfully"}
 
 # Estimate endpoints
-def generate_estimate_number():
-    """Generate estimate number: EST-25-MMDD-XX"""
-    now = datetime.now(timezone.utc)
-    year = now.strftime("%y")
-    month_day = now.strftime("%m%d")
-    return f"EST-{year}-{month_day}"
+async def generate_estimate_number(company_id: str):
+    """Generate simple sequential estimate number starting from 260, filling gaps"""
+    # Get all non-deleted estimates for this company
+    estimates = await db.estimates.find({
+        "company_id": company_id,
+        "deleted": {"$ne": True}
+    }).to_list(length=None)
+
+    # Collect existing numbers
+    existing_numbers = set()
+    for estimate in estimates:
+        estimate_num = estimate.get("estimate_number", "")
+        try:
+            # Only consider new format numbers (6 digits, no EST- prefix)
+            if not estimate_num.startswith("EST-") and estimate_num.isdigit() and len(estimate_num) == 6:
+                existing_numbers.add(int(estimate_num))
+        except:
+            continue
+
+    # Find the first available number starting from 260
+    next_number = 260
+    while next_number in existing_numbers:
+        next_number += 1
+
+    return str(next_number).zfill(6)
 
 @api_router.post("/estimates")
 async def create_estimate(estimate_data: dict, current_user: User = Depends(get_current_user)):
     """Create a new estimate"""
     if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     # Generate estimate number with sequence
-    base_number = generate_estimate_number()
-    count = await db.estimates.count_documents({
-        "company_id": current_user.company_id,
-        "estimate_number": {"$regex": f"^{base_number}"}
-    })
-    estimate_number = f"{base_number}-{str(count + 1).zfill(2)}"
+    estimate_number = await generate_estimate_number(current_user.company_id)
     
     # Process items
     items = []

@@ -9,7 +9,14 @@ export const capitalizeName = (name) => {
       if (word.includes('.')) {
         return word
           .split('.')
-          .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .map(part => {
+            // If part is empty (from consecutive dots), return empty
+            if (!part) return '';
+            // If part is a single letter, keep it uppercase
+            if (part.length === 1) return part.toUpperCase();
+            // For multi-character parts, capitalize first letter and keep rest lowercase
+            return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+          })
           .join('.');
       }
       // Regular capitalization for words without periods
