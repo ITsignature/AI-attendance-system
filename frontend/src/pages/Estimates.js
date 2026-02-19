@@ -949,7 +949,12 @@ export default function Estimates() {
                 {/* Footer Section */}
                 <div className="space-y-1">
                   <p className="text-base">Thank you</p>
-                  <p className="text-base mb-16">Your truly,</p>
+                  <p className="text-base">Your truly,</p>
+                  <img
+                    src="/signature.png"
+                    alt="Signature"
+                    className="h-16 w-auto my-2"
+                  />
                   <p className="text-base font-semibold">S. G. Jamitha</p>
                   <p className="text-base">Ekma Digital Solutions (Private) Limited.</p>
                 </div>
