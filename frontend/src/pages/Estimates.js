@@ -46,9 +46,12 @@ export default function Estimates() {
     customer_id: '',
     estimate_date: new Date().toISOString().split('T')[0],
     valid_until: getDefaultValidUntil(),
+    subject: '',
     notes: '',
     display_total_amounts: true,
-    items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '', display_amounts: true }]
+    discount: 0,
+    discount_type: 'amount',
+    items: [{ product_id: '', product_name: '', description: '', size: '', quantity: '', unit_price: '', display_amounts: true }]
   });
 
   useEffect(() => {
@@ -175,12 +178,16 @@ export default function Estimates() {
       customer_id: estimate.customer_id,
       estimate_date: estimate.estimate_date,
       valid_until: estimate.valid_until,
+      subject: estimate.subject || '',
       notes: estimate.notes || '',
       display_total_amounts: estimate.display_total_amounts !== undefined ? estimate.display_total_amounts : true,
+      discount: estimate.discount || 0,
+      discount_type: estimate.discount_type || 'amount',
       items: estimate.items.map(item => ({
         product_id: item.product_id || '',
         product_name: item.product_name,
         description: item.description || '',
+        size: item.size || '',
         quantity: item.quantity,
         unit_price: item.unit_price,
         display_amounts: item.display_amounts !== undefined ? item.display_amounts : true
@@ -194,9 +201,12 @@ export default function Estimates() {
       customer_id: '',
       estimate_date: new Date().toISOString().split('T')[0],
       valid_until: getDefaultValidUntil(),
+      subject: '',
       notes: '',
       display_total_amounts: true,
-      items: [{ product_id: '', product_name: '', description: '', quantity: '', unit_price: '', display_amounts: true }]
+      discount: 0,
+      discount_type: 'amount',
+      items: [{ product_id: '', product_name: '', description: '', size: '', quantity: '', unit_price: '', display_amounts: true }]
     });
     setEditingEstimate(null);
   };
@@ -610,6 +620,16 @@ export default function Estimates() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-medium mb-1">Subject</label>
+                <Input
+                  type="text"
+                  value={estimateForm.subject}
+                  onChange={(e) => setEstimateForm({ ...estimateForm, subject: e.target.value })}
+                  placeholder="e.g., Sticker Print & Cut"
+                />
+              </div>
+
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold">Estimate Items</h3>
@@ -622,7 +642,8 @@ export default function Estimates() {
                 {/* Column Headers */}
                 <div className="grid grid-cols-12 gap-2 mb-2 px-1">
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Product</div>
-                  <div className="col-span-3 text-xs font-semibold text-gray-600">Name</div>
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Name</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600">Size</div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Quantity</div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Unit Price</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Total</div>
@@ -648,12 +669,19 @@ export default function Estimates() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="col-span-3">
+                    <div className="col-span-2">
                       <Input
                         value={item.product_name}
                         onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
                         placeholder="Name *"
                         required
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <Input
+                        value={item.size}
+                        onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
+                        placeholder="Size"
                       />
                     </div>
                     <div className="col-span-2">
@@ -710,6 +738,70 @@ export default function Estimates() {
                       <p className="text-sm text-gray-600">Subtotal</p>
                       <p className="text-2xl font-bold text-green-600">Rs {calculateTotal(estimateForm.items).toFixed(2)}</p>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Discount Section */}
+              <div className="grid grid-cols-12 gap-4 p-4 bg-gray-50 rounded border">
+                <div className="col-span-12">
+                  <label className="block text-sm font-medium mb-2">Discount (Optional)</label>
+                </div>
+                <div className="col-span-6">
+                  <label className="block text-xs text-gray-600 mb-1">Discount Type</label>
+                  <Select
+                    value={estimateForm.discount_type}
+                    onValueChange={(value) => setEstimateForm({ ...estimateForm, discount_type: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="amount">Fixed Amount (Rs)</SelectItem>
+                      <SelectItem value="percentage">Percentage (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-6">
+                  <label className="block text-xs text-gray-600 mb-1">
+                    Discount Value {estimateForm.discount_type === 'percentage' ? '(%)' : '(Rs)'}
+                  </label>
+                  <Input
+                    type="number"
+                    value={estimateForm.discount}
+                    onChange={(e) => setEstimateForm({ ...estimateForm, discount: parseFloat(e.target.value) || 0 })}
+                    placeholder="0"
+                    min="0"
+                    step={estimateForm.discount_type === 'percentage' ? '0.01' : '1'}
+                  />
+                </div>
+                <div className="col-span-12 text-sm">
+                  <div className="flex justify-between py-1">
+                    <span className="text-gray-600">Subtotal:</span>
+                    <span className="font-semibold">Rs {calculateTotal(estimateForm.items).toFixed(2)}</span>
+                  </div>
+                  {estimateForm.discount > 0 && (
+                    <div className="flex justify-between py-1 text-red-600">
+                      <span>Discount:</span>
+                      <span>
+                        - Rs {(estimateForm.discount_type === 'percentage'
+                          ? calculateTotal(estimateForm.items) * (estimateForm.discount / 100)
+                          : estimateForm.discount
+                        ).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between py-1 text-lg font-bold border-t mt-1 pt-1">
+                    <span>Total:</span>
+                    <span className="text-green-600">
+                      Rs {(
+                        calculateTotal(estimateForm.items) -
+                        (estimateForm.discount_type === 'percentage'
+                          ? calculateTotal(estimateForm.items) * (estimateForm.discount / 100)
+                          : estimateForm.discount
+                        )
+                      ).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -845,17 +937,22 @@ export default function Estimates() {
                   </Button>
                 </div>
               </DialogHeader>
-              <div id="estimate-pdf-content" className="bg-white px-12">
-                {/* Letterhead Header Image with Date Box Overlay */}
-                <div className="relative mb-0">
-                  <img
-                    src="/letterhead-header.jpg"
-                    alt="Letterhead"
-                    className="w-full h-auto"
-                  />
-                  {/* Date and Estimate Number Box - Positioned over the diagonal lines area */}
-                  <div className="absolute top-24 right-0 border-2 border-green-600 rounded-lg p-2 bg-white min-w-[160px]">
-                    <div className="mb-1">
+              <div id="estimate-pdf-content" className="bg-white px-12 py-8">
+                {/* Header Section */}
+                <div className="relative mb-4 flex justify-between items-start">
+                  {/* Left - Header Image (Logo and Contact Details) */}
+                  <div>
+                    <img
+                      src="/estimate-header.jpg"
+                      alt="Estimate Header"
+                      className="h-auto"
+                      style={{ maxWidth: '600px' }}
+                    />
+                  </div>
+
+                  {/* Right - Date and Quotation Number Box */}
+                  <div className="border-2 border-green-600 rounded-lg p-3 bg-white min-w-[180px]">
+                    <div className="mb-2">
                       <p className="text-xs font-semibold">Date:</p>
                       <p className="text-sm">{selectedEstimate.estimate_date}</p>
                     </div>
@@ -866,22 +963,17 @@ export default function Estimates() {
                   </div>
                 </div>
 
-                <div className="pb-8 mt-3">
+                {/* Quotation Title */}
+                <div className="mb-4 mt-2">
+                  <h2 className="text-2xl font-bold">Quotation</h2>
+                </div>
 
-                  {/* Green and Yellow Line */}
-                  <div className="mb-1">
-                    <div className="h-2 bg-green-600"></div>
-                    <div className="h-1 bg-yellow-400"></div>
-                  </div>
-
-                  {/* Quotation Title */}
-                  <div className="mb-4 mt-2">
-                    <h2 className="text-2xl font-bold">Quotation</h2>
-                  </div>
-
-                {/* Customer Name and Description */}
+                {/* Customer Name, Subject and Description */}
                 <div className="mb-4">
                   <p className="text-lg font-bold mb-1">{selectedEstimate.customer?.name}</p>
+                  {selectedEstimate.subject && (
+                    <p className="text-base font-semibold text-gray-800 mb-1">{selectedEstimate.subject}</p>
+                  )}
                   {selectedEstimate.notes && (
                     <p className="text-sm text-gray-700">{selectedEstimate.notes}</p>
                   )}
@@ -889,7 +981,7 @@ export default function Estimates() {
 
                 {/* Items Table */}
                 <div className="mb-6">
-                  <table className="w-full border-collapse border-2 border-black">
+                  <table className="w-full border-2 border-black rounded-lg" style={{ borderCollapse: 'separate', borderSpacing: 0, borderRadius: '8px', overflow: 'hidden' }}>
                     <thead>
                       <tr className="bg-white">
                         <th className="border border-black text-left p-3 font-semibold">Item</th>
@@ -916,7 +1008,7 @@ export default function Estimates() {
                               )}
                             </div>
                           </td>
-                          <td className="border border-black text-center p-3"></td>
+                          <td className="border border-black text-center p-3">{item.size || ''}</td>
                           <td className="border border-black text-center p-3">{item.quantity}</td>
                           <td className="border border-black text-center p-3">
                             {selectedEstimate.display_total_amounts !== false ? `Rs.${item.unit_price.toFixed(2)}` : ''}
@@ -926,6 +1018,30 @@ export default function Estimates() {
                           </td>
                         </tr>
                       ))}
+                      {/* Subtotal Row */}
+                      {selectedEstimate.discount > 0 && (
+                        <tr className="bg-white">
+                          <td colSpan="4" className="border border-black text-right p-3">Subtotal</td>
+                          <td className="border border-black text-right p-3">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs.${selectedEstimate.subtotal.toFixed(2)}` : ''}
+                          </td>
+                        </tr>
+                      )}
+                      {/* Discount Row */}
+                      {selectedEstimate.discount > 0 && selectedEstimate.display_total_amounts !== false && (
+                        <tr className="bg-white">
+                          <td colSpan="4" className="border border-black text-right p-3">
+                            Discount {selectedEstimate.discount_type === 'percentage' ? `(${selectedEstimate.discount}%)` : ''}
+                          </td>
+                          <td className="border border-black text-right p-3">
+                            - Rs.{(selectedEstimate.discount_type === 'percentage'
+                              ? selectedEstimate.subtotal * (selectedEstimate.discount / 100)
+                              : selectedEstimate.discount
+                            ).toFixed(2)}
+                          </td>
+                        </tr>
+                      )}
+                      {/* Total Row */}
                       <tr className="bg-white">
                         <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
                         <td className="border border-black text-right p-3 font-bold">
@@ -957,7 +1073,6 @@ export default function Estimates() {
                   />
                   <p className="text-base font-semibold">S. G. Jamitha</p>
                   <p className="text-base">Ekma Digital Solutions (Private) Limited.</p>
-                </div>
                 </div>
               </div>
             </DialogContent>

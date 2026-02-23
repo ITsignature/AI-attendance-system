@@ -311,6 +311,7 @@ export default function InvoiceProducts() {
                           <SelectItem value="hrs">Hours</SelectItem>
                           <SelectItem value="box">Box</SelectItem>
                           <SelectItem value="set">Set</SelectItem>
+                          <SelectItem value="sqft">per sq.ft.</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

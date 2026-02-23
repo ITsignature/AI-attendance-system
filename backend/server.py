@@ -267,6 +267,7 @@ class InvoiceItem(BaseModel):
     product_id: Optional[str] = None
     product_name: str
     description: Optional[str] = None
+    size: Optional[str] = None
     quantity: float
     unit_price: float
     total: float
@@ -321,8 +322,11 @@ class Estimate(BaseModel):
     valid_until: Optional[str] = None
     items: List[InvoiceItem] = []
     subtotal: float
+    discount: float = 0.0  # Discount amount
+    discount_type: str = "amount"  # "amount" or "percentage"
     total: float
     status: str = "draft"  # draft, sent, accepted, rejected, converted
+    subject: Optional[str] = None  # Subject/title of the estimate
     notes: Optional[str] = None
     display_total_amounts: bool = True  # Whether to show amounts in estimate view
     created_by: str
@@ -2894,6 +2898,7 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
             product_id=item_data.get("product_id"),
             product_name=item_data["product_name"],
             description=item_data.get("description"),
+            size=item_data.get("size"),
             quantity=item_data["quantity"],
             unit_price=item_data["unit_price"],
             total=item_data["quantity"] * item_data["unit_price"],
@@ -2903,7 +2908,18 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
 
     # Calculate subtotal only for items with display_amounts=True
     subtotal = sum([item["total"] for item in items if item.get("display_amounts", True)])
-    
+
+    # Calculate discount and total
+    discount = estimate_data.get("discount", 0.0)
+    discount_type = estimate_data.get("discount_type", "amount")
+
+    if discount_type == "percentage":
+        discount_amount = subtotal * (discount / 100)
+    else:
+        discount_amount = discount
+
+    total = subtotal - discount_amount
+
     estimate = Estimate(
         company_id=current_user.company_id,
         customer_id=estimate_data["customer_id"],
@@ -2912,7 +2928,10 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
         valid_until=estimate_data.get("valid_until"),
         items=items,
         subtotal=subtotal,
-        total=subtotal,
+        discount=discount,
+        discount_type=discount_type,
+        total=total,
+        subject=estimate_data.get("subject"),
         notes=estimate_data.get("notes"),
         display_total_amounts=estimate_data.get("display_total_amounts", True),
         created_by=current_user.id,
@@ -3069,6 +3088,7 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
             "product_id": item_data.get("product_id"),
             "product_name": item_data["product_name"],
             "description": item_data.get("description"),
+            "size": item_data.get("size"),
             "quantity": quantity,
             "unit_price": unit_price,
             "total": quantity * unit_price,
@@ -3079,13 +3099,27 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
     # Calculate subtotal only for items with display_amounts=True
     subtotal = sum([item["total"] for item in items if item.get("display_amounts", True)])
 
+    # Calculate discount and total
+    discount = estimate_data.get("discount", estimate.get("discount", 0.0))
+    discount_type = estimate_data.get("discount_type", estimate.get("discount_type", "amount"))
+
+    if discount_type == "percentage":
+        discount_amount = subtotal * (discount / 100)
+    else:
+        discount_amount = discount
+
+    total = subtotal - discount_amount
+
     update_data = {
         "customer_id": estimate_data.get("customer_id", estimate["customer_id"]),
         "estimate_date": estimate_data.get("estimate_date", estimate["estimate_date"]),
         "valid_until": estimate_data.get("valid_until", estimate["valid_until"]),
         "items": items,
         "subtotal": subtotal,
-        "total": subtotal,
+        "discount": discount,
+        "discount_type": discount_type,
+        "total": total,
+        "subject": estimate_data.get("subject", estimate.get("subject")),
         "notes": estimate_data.get("notes", estimate.get("notes")),
         "display_total_amounts": estimate_data.get("display_total_amounts", estimate.get("display_total_amounts", True))
     }
