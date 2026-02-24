@@ -21,6 +21,7 @@ export default function Estimates() {
   const [deletedCount, setDeletedCount] = useState(0);
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,7 +52,7 @@ export default function Estimates() {
     display_total_amounts: true,
     discount: 0,
     discount_type: 'amount',
-    items: [{ product_id: '', product_name: '', description: '', size: '', quantity: '', unit_price: '', display_amounts: true }]
+    items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true }]
   });
 
   useEffect(() => {
@@ -60,6 +61,7 @@ export default function Estimates() {
     fetchEstimates();
     fetchCustomers();
     fetchProducts();
+    fetchCategories();
     if (!showDeleted) {
       fetchDeletedCount();
     }
@@ -139,6 +141,15 @@ export default function Estimates() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const response = await api.get('/product-categories');
+      setCategories(response.data);
+    } catch (error) {
+      console.error('Failed to fetch categories');
+    }
+  };
+
   // Inline customer creation function
   const handleAddNewCustomer = async (e) => {
     e.preventDefault();
@@ -187,7 +198,9 @@ export default function Estimates() {
         product_id: item.product_id || '',
         product_name: item.product_name,
         description: item.description || '',
+        category_id: item.category_id || '',
         size: item.size || '',
+        unit: item.unit || 'pcs',
         quantity: item.quantity,
         unit_price: item.unit_price,
         display_amounts: item.display_amounts !== undefined ? item.display_amounts : true
@@ -206,7 +219,7 @@ export default function Estimates() {
       display_total_amounts: true,
       discount: 0,
       discount_type: 'amount',
-      items: [{ product_id: '', product_name: '', description: '', size: '', quantity: '', unit_price: '', display_amounts: true }]
+      items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true }]
     });
     setEditingEstimate(null);
   };
@@ -298,15 +311,16 @@ export default function Estimates() {
   const updateEstimateItem = (index, field, value) => {
     const newItems = [...estimateForm.items];
     newItems[index][field] = value;
-    
+
     if (field === 'product_id' && value) {
       const product = products.find(p => p.id === value);
       if (product) {
         newItems[index].product_name = product.name;
         newItems[index].unit_price = product.price;
+        newItems[index].category_id = product.category_id || '';
       }
     }
-    
+
     setEstimateForm({ ...estimateForm, items: newItems });
   };
 
@@ -643,11 +657,13 @@ export default function Estimates() {
                 <div className="grid grid-cols-12 gap-2 mb-2 px-1">
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Product</div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Name</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600">Category</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600">Size</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600">Quantity</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600">Unit Price</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600">Unit</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600">Qty</div>
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Price</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Total</div>
-                  <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Add to Total</div>
+                  <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Add</div>
                   <div className="col-span-1"></div>
                 </div>
 
@@ -678,13 +694,30 @@ export default function Estimates() {
                       />
                     </div>
                     <div className="col-span-1">
+                      <Select
+                        value={item.category_id || "none"}
+                        onValueChange={(value) => updateEstimateItem(index, 'category_id', value === "none" ? "" : value)}
+                        disabled={item.product_id && item.product_id !== ""}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {categories.map(category => (
+                            <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-1">
                       <Input
                         value={item.size}
                         onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
                         placeholder="Size"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-1">
                       <Input
                         type="number"
                         step="0.01"

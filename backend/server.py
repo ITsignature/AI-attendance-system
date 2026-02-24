@@ -267,6 +267,7 @@ class InvoiceItem(BaseModel):
     product_id: Optional[str] = None
     product_name: str
     description: Optional[str] = None
+    category_id: Optional[str] = None
     size: Optional[str] = None
     quantity: float
     unit_price: float
@@ -2857,7 +2858,7 @@ async def restore_invoice(invoice_id: str, current_user: User = Depends(get_curr
 
 # Estimate endpoints
 async def generate_estimate_number(company_id: str):
-    """Generate simple sequential estimate number starting from 260, filling gaps"""
+    """Generate simple sequential estimate number starting from 275, filling gaps"""
     # Get all non-deleted estimates for this company
     estimates = await db.estimates.find({
         "company_id": company_id,
@@ -2875,8 +2876,8 @@ async def generate_estimate_number(company_id: str):
         except:
             continue
 
-    # Find the first available number starting from 260
-    next_number = 260
+    # Find the first available number starting from 275
+    next_number = 275
     while next_number in existing_numbers:
         next_number += 1
 
@@ -2898,6 +2899,7 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
             product_id=item_data.get("product_id"),
             product_name=item_data["product_name"],
             description=item_data.get("description"),
+            category_id=item_data.get("category_id"),
             size=item_data.get("size"),
             quantity=item_data["quantity"],
             unit_price=item_data["unit_price"],
@@ -3088,6 +3090,7 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
             "product_id": item_data.get("product_id"),
             "product_name": item_data["product_name"],
             "description": item_data.get("description"),
+            "category_id": item_data.get("category_id"),
             "size": item_data.get("size"),
             "quantity": quantity,
             "unit_price": unit_price,
