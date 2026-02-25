@@ -35,6 +35,11 @@ export default function Estimates() {
   const [newCustomerData, setNewCustomerData] = useState({
     name: '', company_name: '', email: '', phone: '', whatsapp: '', city: '', address: ''
   });
+
+  const [addProductDialogOpen, setAddProductDialogOpen] = useState(false);
+  const [newProductData, setNewProductData] = useState({
+    name: '', description: '', category_id: '', unit: 'pcs', price: '', stock_quantity: ''
+  });
   
   // Helper function to get default valid until date (1 month from today)
   function getDefaultValidUntil() {
@@ -165,6 +170,32 @@ export default function Estimates() {
     }
   };
 
+  // Inline product creation function
+  const handleAddItemToProducts = (item) => {
+    setNewProductData({
+      name: item.product_name,
+      description: item.description || '',
+      category_id: item.category_id || '',
+      unit: item.unit || 'pcs',
+      price: item.unit_price,
+      stock_quantity: ''
+    });
+    setAddProductDialogOpen(true);
+  };
+
+  const handleAddNewProduct = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/products', newProductData);
+      toast.success('Product added successfully', { style: { background: '#10b981', color: 'white' } });
+      setAddProductDialogOpen(false);
+      setNewProductData({ name: '', description: '', category_id: '', unit: 'pcs', price: '', stock_quantity: '' });
+      await fetchProducts();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add product', { style: { background: '#ef4444', color: 'white' } });
+    }
+  };
+
   const handleCreateEstimate = async (e) => {
     e.preventDefault();
     try {
@@ -250,17 +281,17 @@ export default function Estimates() {
     try {
       const element = document.getElementById('estimate-pdf-content');
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 1.5,
         useCORS: true,
         logging: false
       });
 
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = canvas.toDataURL('image/jpeg', 0.85);
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
       pdf.save(`Estimate-${selectedEstimate.estimate_number}.pdf`);
       toast.success('PDF downloaded successfully');
     } catch (error) {
@@ -316,8 +347,10 @@ export default function Estimates() {
       const product = products.find(p => p.id === value);
       if (product) {
         newItems[index].product_name = product.name;
+        newItems[index].description = product.description || '';
         newItems[index].unit_price = product.price;
         newItems[index].category_id = product.category_id || '';
+        newItems[index].unit = product.unit || 'pcs';
       }
     }
 
@@ -438,6 +471,9 @@ export default function Estimates() {
                       <div>
                         <p className="text-gray-500">Customer</p>
                         <p className="font-semibold">{getCustomerName(estimate.customer_id)}</p>
+                        {estimate.subject && (
+                          <p className="text-xs text-gray-600 mt-1">{estimate.subject}</p>
+                        )}
                       </div>
                       <div>
                         <p className="text-gray-500">Date</p>
@@ -656,11 +692,11 @@ export default function Estimates() {
                 {/* Column Headers */}
                 <div className="grid grid-cols-12 gap-2 mb-2 px-1">
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Product</div>
-                  <div className="col-span-2 text-xs font-semibold text-gray-600">Name</div>
-                  <div className="col-span-1 text-xs font-semibold text-gray-600">Category</div>
+                  <div className="col-span-3 text-xs font-semibold text-gray-600">Name</div>
+                  {/* <div className="col-span-1 text-xs font-semibold text-gray-600">Category</div> */}
                   <div className="col-span-1 text-xs font-semibold text-gray-600">Size</div>
-                  <div className="col-span-1 text-xs font-semibold text-gray-600">Unit</div>
-                  <div className="col-span-1 text-xs font-semibold text-gray-600">Qty</div>
+                  {/* <div className="col-span-1 text-xs font-semibold text-gray-600">Unit</div> */}
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Qty</div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Price</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Total</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Add</div>
@@ -685,15 +721,16 @@ export default function Estimates() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-3">
                       <Input
                         value={item.product_name}
                         onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
                         placeholder="Name *"
                         required
+                        disabled={item.product_id && item.product_id !== ""}
                       />
                     </div>
-                    <div className="col-span-1">
+                    {/* <div className="col-span-1">
                       <Select
                         value={item.category_id || "none"}
                         onValueChange={(value) => updateEstimateItem(index, 'category_id', value === "none" ? "" : value)}
@@ -709,7 +746,7 @@ export default function Estimates() {
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
+                    </div> */}
                     <div className="col-span-1">
                       <Input
                         value={item.size}
@@ -717,7 +754,26 @@ export default function Estimates() {
                         placeholder="Size"
                       />
                     </div>
-                    <div className="col-span-1">
+                    {/* <div className="col-span-1">
+                      <Select
+                        value={item.unit || "pcs"}
+                        onValueChange={(value) => updateEstimateItem(index, 'unit', value)}
+                        disabled={item.product_id && item.product_id !== ""}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pcs">Pieces</SelectItem>
+                          <SelectItem value="kg">Kilograms</SelectItem>
+                          <SelectItem value="hrs">Hours</SelectItem>
+                          <SelectItem value="box">Box</SelectItem>
+                          <SelectItem value="set">Set</SelectItem>
+                          <SelectItem value="sqft">per sq.ft.</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div> */}
+                    <div className="col-span-2">
                       <Input
                         type="number"
                         step="0.01"
@@ -749,7 +805,19 @@ export default function Estimates() {
                         title="Include this item's total in grand total"
                       />
                     </div>
-                    <div className="col-span-1">
+                    <div className="col-span-1 flex gap-1">
+                      {!item.product_id && item.product_name && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-green-600"
+                          onClick={() => handleAddItemToProducts(item)}
+                          title="Add to Products"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      )}
                       {estimateForm.items.length > 1 && (
                         <Button
                           type="button"
@@ -953,6 +1021,99 @@ export default function Estimates() {
           </DialogContent>
         </Dialog>
 
+        {/* Add Product Dialog */}
+        <Dialog open={addProductDialogOpen} onOpenChange={setAddProductDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Add New Product</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleAddNewProduct} className="space-y-4">
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-8">
+                  <label className="block text-sm font-medium mb-1">Product Name *</label>
+                  <Input
+                    value={newProductData.name}
+                    onChange={(e) => setNewProductData({ ...newProductData, name: e.target.value })}
+                    placeholder="Enter product name"
+                    required
+                  />
+                </div>
+                <div className="col-span-4">
+                  <label className="block text-sm font-medium mb-1">Category</label>
+                  <Select
+                    value={newProductData.category_id || "none"}
+                    onValueChange={(value) => setNewProductData({ ...newProductData, category_id: value === "none" ? "" : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {categories.map(category => (
+                        <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Product Description</label>
+                <Textarea
+                  value={newProductData.description}
+                  onChange={(e) => setNewProductData({ ...newProductData, description: e.target.value })}
+                  placeholder="Enter product description"
+                  rows={2}
+                />
+              </div>
+              <div className="grid grid-cols-12 gap-4">
+                <div className="col-span-4">
+                  <label className="block text-sm font-medium mb-1">Price (Rs) *</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={newProductData.price}
+                    onChange={(e) => setNewProductData({ ...newProductData, price: e.target.value })}
+                    placeholder="Enter price"
+                    required
+                  />
+                </div>
+                <div className="col-span-4">
+                  <label className="block text-sm font-medium mb-1">Unit *</label>
+                  <Select
+                    value={newProductData.unit}
+                    onValueChange={(value) => setNewProductData({ ...newProductData, unit: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pcs">Pieces</SelectItem>
+                      <SelectItem value="kg">Kilograms</SelectItem>
+                      <SelectItem value="hrs">Hours</SelectItem>
+                      <SelectItem value="box">Box</SelectItem>
+                      <SelectItem value="set">Set</SelectItem>
+                      <SelectItem value="sqft">per sq.ft.</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-4">
+                  <label className="block text-sm font-medium mb-1">Stock Qty</label>
+                  <Input
+                    type="number"
+                    value={newProductData.stock_quantity}
+                    onChange={(e) => setNewProductData({ ...newProductData, stock_quantity: e.target.value })}
+                    placeholder="Stock quantity"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setAddProductDialogOpen(false)}>Cancel</Button>
+                <Button type="submit">Add Product</Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
         {/* View Estimate Dialog */}
         {selectedEstimate && (
           <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
@@ -963,7 +1124,7 @@ export default function Estimates() {
                   <Button
                     size="sm"
                     onClick={handleDownloadEstimatePDF}
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 mr-16"
                   >
                     <Download className="w-4 h-4" />
                     Download PDF
@@ -1001,14 +1162,11 @@ export default function Estimates() {
                   <h2 className="text-2xl font-bold">Quotation</h2>
                 </div>
 
-                {/* Customer Name, Subject and Description */}
+                {/* Customer Name and Subject */}
                 <div className="mb-4">
-                  <p className="text-lg font-bold mb-1">{selectedEstimate.customer?.name}</p>
+                  <p className="text-2xl font-bold mb-1">{selectedEstimate.customer?.name}</p>
                   {selectedEstimate.subject && (
-                    <p className="text-base font-semibold text-gray-800 mb-1">{selectedEstimate.subject}</p>
-                  )}
-                  {selectedEstimate.notes && (
-                    <p className="text-sm text-gray-700">{selectedEstimate.notes}</p>
+                    <p className="text-base text-gray-800 mb-1">{selectedEstimate.subject}</p>
                   )}
                 </div>
 
@@ -1031,13 +1189,9 @@ export default function Estimates() {
                         <tr key={index}>
                           <td className="border border-black p-3">
                             <div>
-                              <p className="font-bold mb-1">{item.product_name}</p>
+                              <p className="font-semibold mb-1">{item.product_name}</p>
                               {item.description && (
-                                <div className="text-sm text-gray-700">
-                                  {item.description.split('\n').map((line, i) => (
-                                    <p key={i} className="ml-2">• {line}</p>
-                                  ))}
-                                </div>
+                                <p className="text-xs italic text-gray-600">{item.description}</p>
                               )}
                             </div>
                           </td>
@@ -1084,6 +1238,13 @@ export default function Estimates() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Notes Section */}
+                {selectedEstimate.notes && (
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-700">{selectedEstimate.notes}</p>
+                  </div>
+                )}
 
                 {/* Terms and Conditions */}
                 <div className="mb-6 text-sm">

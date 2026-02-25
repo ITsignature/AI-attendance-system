@@ -269,6 +269,7 @@ class InvoiceItem(BaseModel):
     description: Optional[str] = None
     category_id: Optional[str] = None
     size: Optional[str] = None
+    unit: Optional[str] = "pcs"
     quantity: float
     unit_price: float
     total: float
@@ -2901,6 +2902,7 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
             description=item_data.get("description"),
             category_id=item_data.get("category_id"),
             size=item_data.get("size"),
+            unit=item_data.get("unit", "pcs"),
             quantity=item_data["quantity"],
             unit_price=item_data["unit_price"],
             total=item_data["quantity"] * item_data["unit_price"],
@@ -3092,6 +3094,7 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
             "description": item_data.get("description"),
             "category_id": item_data.get("category_id"),
             "size": item_data.get("size"),
+            "unit": item_data.get("unit", "pcs"),
             "quantity": quantity,
             "unit_price": unit_price,
             "total": quantity * unit_price,
