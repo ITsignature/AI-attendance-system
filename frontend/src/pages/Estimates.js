@@ -727,7 +727,6 @@ export default function Estimates() {
                         onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
                         placeholder="Name *"
                         required
-                        disabled={item.product_id && item.product_id !== ""}
                       />
                     </div>
                     {/* <div className="col-span-1">
