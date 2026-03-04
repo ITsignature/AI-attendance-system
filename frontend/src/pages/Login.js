@@ -158,7 +158,7 @@ export default function Login() {
             {!otpSent ? (
               <form onSubmit={handleSendOTP} className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Mobile Number</label>
+                  <label className="text-sm font-medium text-gray-700">Office Mobile Number</label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2">
                       <Phone className="w-5 h-5 text-gray-400" />

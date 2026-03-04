@@ -101,7 +101,8 @@ class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company_id: Optional[str] = None
     employee_id: Optional[str] = None
-    mobile: str
+    office_mobile: str
+    personal_mobile: Optional[str] = None
     name: str
     role: str  # super_admin, admin, manager, accountant, employee, staff_member
     department: Optional[str] = None
@@ -124,7 +125,8 @@ class User(BaseModel):
 
 class UserCreate(BaseModel):
     employee_id: Optional[str] = None
-    mobile: str
+    office_mobile: str
+    personal_mobile: Optional[str] = None
     name: str
     role: str
     department: Optional[str] = None
@@ -141,7 +143,8 @@ class UserCreate(BaseModel):
 class BulkEmployeeParsed(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
-    mobile: Optional[str] = None
+    office_mobile: Optional[str] = None
+    personal_mobile: Optional[str] = None
     role: Optional[str] = None
     position: Optional[str] = None
     department: Optional[str] = None
@@ -614,7 +617,7 @@ async def send_otp(request: OTPRequest):
     if len(request.mobile) != 10 or not request.mobile.isdigit():
         raise HTTPException(status_code=400, detail="Invalid mobile number")
     
-    user = await db.users.find_one({"mobile": request.mobile}, {"_id": 0})
+    user = await db.users.find_one({"office_mobile": request.mobile}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -662,7 +665,7 @@ async def verify_otp(request: OTPVerify):
         )
     
     # Check for multiple roles first to log invalid OTP with correct user context
-    users = await db.users.find({"mobile": request.mobile}, {"_id": 0}).to_list(10)
+    users = await db.users.find({"office_mobile": request.mobile}, {"_id": 0}).to_list(10)
     if not users:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -761,7 +764,7 @@ async def create_company(company: CompanyCreate, current_user: User = Depends(ge
     admin_user = User(
         company_id=company_obj.id,
         employee_id=f"ADMIN-{company_obj.id[:8]}",
-        mobile=company.admin_mobile,
+        office_mobile=company.admin_mobile,
         name=company.admin_name,
         role="admin",
         join_date=datetime.now(timezone.utc).date().isoformat()
@@ -884,7 +887,7 @@ async def get_company_admins(company_id: str, current_user: User = Depends(get_c
     # Find all users with admin role for this company
     admins = await db.users.find(
         {"company_id": company_id, "role": "admin"},
-        {"_id": 0, "id": 1, "name": 1, "mobile": 1, "employee_id": 1}
+        {"_id": 0, "id": 1, "name": 1, "office_mobile": 1, "employee_id": 1}
     ).to_list(100)
     
     return admins
@@ -909,24 +912,24 @@ async def resend_company_url(company_id: str, admin_id: str, current_user: User 
         raise HTTPException(status_code=404, detail="Admin not found")
     
     # Send SMS using default system gateway (same as OTP)
-    message = f"Your company portal: {company['name']}. Login with mobile {admin['mobile']} at: https://admin-sms-portal.preview.emergentagent.com"
-    sms_sent = send_sms(admin['mobile'], message, None)  # None = use default system gateway
-    
+    message = f"Your company portal: {company['name']}. Login with mobile {admin['office_mobile']} at: https://admin-sms-portal.preview.emergentagent.com"
+    sms_sent = send_sms(admin['office_mobile'], message, None)  # None = use default system gateway
+
     if not sms_sent:
         raise HTTPException(status_code=500, detail="Failed to send SMS")
-    
+
     await log_activity(
-        "SUPER_ADMIN", 
-        current_user.id, 
-        current_user.name, 
-        "RESEND_URL", 
-        f"Re-sent company URL for {company['name']} to admin {admin['name']} ({admin['mobile']})"
+        "SUPER_ADMIN",
+        current_user.id,
+        current_user.name,
+        "RESEND_URL",
+        f"Re-sent company URL for {company['name']} to admin {admin['name']} ({admin['office_mobile']})"
     )
-    
+
     return {
         "message": "URL sent successfully",
         "admin_name": admin['name'],
-        "admin_mobile": admin['mobile']
+        "admin_mobile": admin['office_mobile']
     }
 
 @api_router.get("/superadmin/admins")
@@ -942,16 +945,17 @@ async def create_super_admin(admin_data: dict, current_user: User = Depends(get_
     if current_user.role != "super_admin":
         raise HTTPException(status_code=403, detail="Super admin access required")
     
-    # Check if mobile already exists
-    existing = await db.users.find_one({"mobile": admin_data["mobile"]})
+    # Check if office mobile already exists
+    existing = await db.users.find_one({"office_mobile": admin_data.get("office_mobile", admin_data.get("mobile", ""))})
     if existing:
         raise HTTPException(status_code=400, detail="Mobile number already registered")
-    
+
     # Create super admin
     new_admin = User(
         company_id=None,
         employee_id=admin_data.get("employee_id"),
-        mobile=admin_data["mobile"],
+        office_mobile=admin_data.get("office_mobile", admin_data.get("mobile", "")),
+        personal_mobile=admin_data.get("personal_mobile"),
         name=capitalize_name(admin_data["name"]),
         role="super_admin",
         join_date=datetime.now(timezone.utc).date().isoformat(),
@@ -1109,7 +1113,7 @@ async def update_super_admin(admin_id: str, updates: dict, current_user: User = 
         raise HTTPException(status_code=404, detail="Super admin not found")
     
     # Only update allowed fields
-    allowed_fields = ["name", "mobile", "can_full_access_companies"]
+    allowed_fields = ["name", "office_mobile", "personal_mobile", "can_full_access_companies"]
     update_data = {k: v for k, v in updates.items() if k in allowed_fields}
     
     if "name" in update_data:
@@ -1456,21 +1460,22 @@ async def create_employee(employee: UserCreate, current_user: User = Depends(get
         raise HTTPException(status_code=403, detail="Admin, manager or accountant access required")
     
     # Check if employee already exists
-    existing = await db.users.find_one({"mobile": employee.mobile, "company_id": current_user.company_id})
+    existing = await db.users.find_one({"office_mobile": employee.office_mobile, "company_id": current_user.company_id})
     if existing:
-        raise HTTPException(status_code=400, detail="Employee with this mobile number already exists")
-    
+        raise HTTPException(status_code=400, detail="Employee with this office mobile number already exists")
+
     # Get company settings for default times
     settings = await db.settings.find_one({"company_id": current_user.company_id})
     default_start_time = settings.get("office_start_time", "09:00") if settings else "09:00"
     default_finish_time = settings.get("office_end_time", "17:00") if settings else "17:00"
-    
+
     # Create new employee
     new_employee = User(
         id=str(uuid.uuid4()),
         company_id=current_user.company_id,
         employee_id=employee.employee_id or f"EMP-{str(uuid.uuid4())[:8]}",
-        mobile=employee.mobile,
+        office_mobile=employee.office_mobile,
+        personal_mobile=employee.personal_mobile,
         name=capitalize_name(employee.name),
         role=employee.role,
         department=employee.department or "",
@@ -1486,7 +1491,7 @@ async def create_employee(employee: UserCreate, current_user: User = Depends(get
     )
     
     await db.users.insert_one(new_employee.model_dump())
-    await log_activity(current_user.company_id, current_user.id, current_user.name, "CREATE_EMPLOYEE", f"Created employee: {capitalize_name(employee.name)}, Role: {employee.role}, Mobile: {employee.mobile}, Department: {employee.department or 'N/A'}")
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "CREATE_EMPLOYEE", f"Created employee: {capitalize_name(employee.name)}, Role: {employee.role}, Office Mobile: {employee.office_mobile}, Department: {employee.department or 'N/A'}")
     
     return new_employee
 
@@ -1585,7 +1590,8 @@ async def parse_bulk_employees(data: dict, current_user: User = Depends(get_curr
 Extract employee information and return ONLY a valid JSON array. Each employee should be an object with these fields:
 - name: Full name (string)
 - email: Email address (string, can be null)
-- mobile: Phone number (string, can be null)
+- office_mobile: Office/work phone number used for login (string, can be null)
+- personal_mobile: Personal phone number (string, can be null)
 - role: Job role/position/designation (string, can be null)
 - position: Position/title (string, can be null)
 - department: Department (string, can be null)
@@ -1600,7 +1606,7 @@ Rules:
 6. If role and position seem similar, use the value for both fields
 
 Example output format:
-[{"name":"John Doe","email":"john@example.com","mobile":"0771234567","role":"Manager","position":"Manager","department":"IT","join_date":"2023-01-15"}]"""
+[{"name":"John Doe","email":"john@example.com","office_mobile":"0771234567","personal_mobile":null,"role":"Manager","position":"Manager","department":"IT","join_date":"2023-01-15"}]"""
         ).with_model("gemini", "gemini-2.0-flash")
         
         # Create user message
@@ -1656,26 +1662,27 @@ async def bulk_import_employees(data: BulkEmployeeImportRequest, current_user: U
                     errors.append({"index": idx, "error": "Name is required"})
                     continue
                 
-                if not emp_data.get("mobile") and not emp_data.get("email"):
-                    errors.append({"index": idx, "error": "Mobile or email is required"})
+                if not emp_data.get("office_mobile") and not emp_data.get("email"):
+                    errors.append({"index": idx, "error": "Office mobile or email is required"})
                     continue
-                
-                # Check for duplicate mobile
-                if emp_data.get("mobile"):
+
+                # Check for duplicate office mobile
+                if emp_data.get("office_mobile"):
                     existing = await db.users.find_one({
-                        "mobile": emp_data["mobile"],
+                        "office_mobile": emp_data["office_mobile"],
                         "company_id": current_user.company_id
                     })
                     if existing:
-                        errors.append({"index": idx, "name": emp_data.get("name"), "error": f"Employee with mobile {emp_data['mobile']} already exists"})
+                        errors.append({"index": idx, "name": emp_data.get("name"), "error": f"Employee with office mobile {emp_data['office_mobile']} already exists"})
                         continue
-                
+
                 # Create new employee
                 new_employee = User(
                     id=str(uuid.uuid4()),
                     company_id=current_user.company_id,
                     employee_id=emp_data.get("employee_id") or f"EMP-{str(uuid.uuid4())[:8]}",
-                    mobile=emp_data.get("mobile", ""),
+                    office_mobile=emp_data.get("office_mobile", ""),
+                    personal_mobile=emp_data.get("personal_mobile"),
                     name=capitalize_name(emp_data["name"]),
                     role=emp_data.get("role", "employee"),
                     department=emp_data.get("department", ""),
@@ -5505,7 +5512,7 @@ async def get_employee_location_report(
         "employee": {
             "id": employee["id"],
             "name": capitalize_name(employee["name"]),
-            "mobile": employee["mobile"],
+            "mobile": employee.get("office_mobile", "N/A"),
             "position": employee.get("position")
         },
         "tracking_sessions": tracking_sessions,
@@ -5581,7 +5588,7 @@ async def get_all_location_reports(
     # Fetch user information for all these employee_ids
     users_with_data = await db.users.find(
         {"id": {"$in": list(employee_ids)}},
-        {"_id": 0, "id": 1, "name": 1, "mobile": 1, "position": 1, "role": 1}
+        {"_id": 0, "id": 1, "name": 1, "office_mobile": 1, "position": 1, "role": 1}
     ).to_list(length=None)
     
     print(f"DEBUG: Found {len(users_with_data)} users from database")
@@ -5600,7 +5607,7 @@ async def get_all_location_reports(
                 users_with_data.append({
                     "id": emp_id,
                     "name": session_with_name.get("employee_name", "Unknown User"),
-                    "mobile": "N/A",
+                    "office_mobile": "N/A",
                     "position": "Super Admin" if emp_id == "SUPER-ADMIN" else "Unknown",
                     "role": "super_admin" if emp_id == "SUPER-ADMIN" else "unknown"
                 })
@@ -5624,7 +5631,7 @@ async def get_all_location_reports(
                 "employee": {
                     "id": user["id"],
                     "name": capitalize_name(user["name"]),
-                    "mobile": user.get("mobile", "N/A"),
+                    "mobile": user.get("office_mobile", "N/A"),
                     "position": user.get("position", user.get("role", "").title())
                 },
                 "tracking_sessions_count": len(emp_tracking),

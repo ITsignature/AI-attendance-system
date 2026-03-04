@@ -18,7 +18,8 @@ export default function SuperAdminManagement() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    mobile: '',
+    office_mobile: '',
+    personal_mobile: '',
     employee_id: '',
     can_full_access_companies: false
   });
@@ -46,7 +47,7 @@ export default function SuperAdminManagement() {
         style: { background: '#10b981', color: 'white' }
       });
       setDialogOpen(false);
-      setFormData({ name: '', mobile: '', employee_id: '', can_full_access_companies: false });
+      setFormData({ name: '', office_mobile: '', personal_mobile: '', employee_id: '', can_full_access_companies: false });
       fetchSuperAdmins();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create super admin', {
@@ -125,13 +126,22 @@ export default function SuperAdminManagement() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Mobile (10 digits) *</label>
+                    <label className="text-sm font-medium">Office Mobile (10 digits) *</label>
                     <Input
-                      value={formData.mobile}
-                      onChange={(e) => setFormData({...formData, mobile: e.target.value.replace(/\\D/g, '').slice(0, 10)})}
+                      value={formData.office_mobile}
+                      onChange={(e) => setFormData({...formData, office_mobile: e.target.value.replace(/\D/g, '').slice(0, 10)})}
                       maxLength={10}
                       placeholder="0771234567"
                       required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Personal Mobile (10 digits)</label>
+                    <Input
+                      value={formData.personal_mobile}
+                      onChange={(e) => setFormData({...formData, personal_mobile: e.target.value.replace(/\D/g, '').slice(0, 10)})}
+                      maxLength={10}
+                      placeholder="0771234567"
                     />
                   </div>
                   <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -174,7 +184,7 @@ export default function SuperAdminManagement() {
                     <div className="flex-1">
                       <h3 className="font-bold text-lg">{admin.name}</h3>
                       <p className="text-sm text-gray-600">
-                        {admin.employee_id} | {admin.mobile}
+                        {admin.employee_id} | {admin.office_mobile || admin.mobile}
                       </p>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge className="bg-red-100 text-red-700">Super Admin</Badge>

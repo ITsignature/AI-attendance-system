@@ -27,7 +27,8 @@ export default function Employees() {
   });
   const [formData, setFormData] = useState({
     employee_id: '',
-    mobile: '',
+    office_mobile: '',
+    personal_mobile: '',
     name: '',
     role: 'employee',
     department: '',
@@ -247,7 +248,8 @@ export default function Employees() {
     setEditingEmployee(employee);
     setFormData({
       employee_id: employee.employee_id || '',
-      mobile: employee.mobile,
+      office_mobile: employee.office_mobile || '',
+      personal_mobile: employee.personal_mobile || '',
       name: employee.name,
       role: employee.role,
       department: employee.department || '',
@@ -268,7 +270,8 @@ export default function Employees() {
     setEditingEmployee(null);
     setFormData({
       employee_id: '',
-      mobile: '',
+      office_mobile: '',
+      personal_mobile: '',
       name: '',
       role: 'employee',
       department: '',
@@ -416,7 +419,8 @@ export default function Employees() {
       (emp) =>
         emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         emp.employee_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        emp.mobile.includes(searchTerm)
+        (emp.office_mobile || '').includes(searchTerm) ||
+        (emp.personal_mobile || '').includes(searchTerm)
     )
     .sort((a, b) => {
       let aValue, bValue;
@@ -427,8 +431,8 @@ export default function Employees() {
           bValue = b.name.toLowerCase();
           break;
         case 'mobile':
-          aValue = a.mobile;
-          bValue = b.mobile;
+          aValue = a.office_mobile || '';
+          bValue = b.office_mobile || '';
           break;
         case 'position':
           aValue = (a.position || '').toLowerCase();
@@ -554,13 +558,23 @@ export default function Employees() {
                   </div>
                   <div>
                     <Input
-                      data-testid="mobile-number-input"
+                      data-testid="office-mobile-input"
                       type="tel"
-                      value={formData.mobile}
-                      onChange={(e) => setFormData({ ...formData, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                      value={formData.office_mobile}
+                      onChange={(e) => setFormData({ ...formData, office_mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                       maxLength={10}
-                      placeholder="Mobile Number *"
+                      placeholder="Office Mobile No *"
                       required
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      data-testid="personal-mobile-input"
+                      type="tel"
+                      value={formData.personal_mobile}
+                      onChange={(e) => setFormData({ ...formData, personal_mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                      maxLength={10}
+                      placeholder="Personal Mobile No"
                     />
                   </div>
                   <div>
@@ -985,7 +999,10 @@ export default function Employees() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{employee.mobile}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div>{employee.office_mobile || '-'}</div>
+                      {employee.personal_mobile && <div className="text-xs text-gray-500">{employee.personal_mobile}</div>}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{employee.position || '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">Rs. {employee.basic_salary.toLocaleString()}</div>
