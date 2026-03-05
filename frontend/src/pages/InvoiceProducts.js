@@ -30,7 +30,8 @@ export default function InvoiceProducts() {
     description: '',
     price: '',
     unit: 'pcs',
-    stock_quantity: ''
+    stock_quantity: '',
+    offcut_rate: ''
   });
   const [categoryName, setCategoryName] = useState('');
 
@@ -94,7 +95,8 @@ export default function InvoiceProducts() {
       const data = {
         ...formData,
         price: parseFloat(formData.price),
-        stock_quantity: parseFloat(formData.stock_quantity)
+        stock_quantity: parseFloat(formData.stock_quantity),
+        offcut_rate: formData.unit === 'sqft' ? (parseFloat(formData.offcut_rate) || 0 ) : null
       };
       
       if (editingProduct) {
@@ -133,7 +135,8 @@ export default function InvoiceProducts() {
       description: product.description || '',
       price: product.price.toString(),
       unit: product.unit,
-      stock_quantity: product.stock_quantity.toString()
+      stock_quantity: product.stock_quantity.toString(),
+      offcut_rate: product.offcut_rate || ''
     });
     setDialogOpen(true);
   };
@@ -161,7 +164,7 @@ export default function InvoiceProducts() {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', category_id: '', description: '', price: '', unit: 'pcs', stock_quantity: '' });
+    setFormData({ name: '', category_id: '', description: '', price: '', unit: 'pcs', stock_quantity: '', offcut_rate: '' });
     setEditingProduct(null);
   };
 
@@ -316,6 +319,18 @@ export default function InvoiceProducts() {
                       </Select>
                     </div>
                     <div className="col-span-4">
+                      {formData.unit === 'sqft' && (
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={formData.offcut_rate}
+                          onChange={(e) => setFormData({ ...formData, offcut_rate: e.target.value })}
+                          placeholder="Offcut Rate (Rs per sq.ft.)"
+                        />
+                      )}
+                    </div>
+                    <div className="col-span-4">
                       <Input
                         type="number"
                         step="0.01"
@@ -381,6 +396,10 @@ export default function InvoiceProducts() {
                   
                   {product.description && (
                     <p className="text-sm text-gray-600">{product.description}</p>
+                  )}
+
+                  {product.unit === 'sqft' && product.offcut_rate != null && (
+                    <div className="text-xs text-gray-500">Offcut: Rs {product.offcut_rate}</div>
                   )}
                   
                   <div className="flex items-center gap-4 pt-2 border-t">

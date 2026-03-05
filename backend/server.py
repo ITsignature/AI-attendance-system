@@ -259,6 +259,7 @@ class Product(BaseModel):
     price: float
     unit: str = "pcs"  # pcs, kg, hrs, etc
     stock_quantity: float = 0
+    offcut_rate: Optional[float] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     deleted: bool = False
     deleted_at: Optional[str] = None
@@ -2517,7 +2518,8 @@ async def create_product(product_data: dict, current_user: User = Depends(get_cu
         description=product_data.get("description"),
         price=product_data["price"],
         unit=product_data.get("unit", "pcs"),
-        stock_quantity=product_data.get("stock_quantity", 0)
+        stock_quantity=product_data.get("stock_quantity", 0),
+        offcut_rate=product_data.get("offcut_rate")
     )
     
     await db.products.insert_one(product.model_dump())
@@ -3217,6 +3219,65 @@ async def reject_estimate(estimate_id: str, current_user: User = Depends(get_cur
     await log_activity(current_user.company_id, current_user.id, current_user.name, "REJECT_ESTIMATE", f"Rejected estimate: {estimate['estimate_number']}")
 
     return {"message": "Estimate rejected successfully"}
+
+@api_router.put("/estimates/{estimate_id}/send")
+async def send_estimate_to_customer(estimate_id: str, current_user: User = Depends(get_current_user)):
+    """Mark a draft estimate as sent to customer"""
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    if estimate.get("status") != "draft":
+        raise HTTPException(status_code=400, detail="Only draft estimates can be sent")
+
+    await db.estimates.update_one(
+        {"id": estimate_id, "company_id": current_user.company_id},
+        {"$set": {
+            "status": "sent",
+            "sent_by": current_user.id,
+            "sent_by_name": current_user.name,
+            "sent_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "SEND_ESTIMATE", f"Sent estimate to customer: {estimate['estimate_number']}")
+
+    return {"message": "Estimate marked as sent"}
+
+@api_router.post("/estimates/{estimate_id}/duplicate")
+async def duplicate_estimate(estimate_id: str, current_user: User = Depends(get_current_user)):
+    """Duplicate an existing estimate as a new draft"""
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    original = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
+    if not original:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    duplicate = Estimate(
+        company_id=current_user.company_id,
+        customer_id=original["customer_id"],
+        estimate_number=original["estimate_number"],
+        estimate_date=datetime.now(timezone.utc).date().isoformat(),
+        valid_until=original.get("valid_until"),
+        items=original.get("items", []),
+        subtotal=original.get("subtotal", 0),
+        discount=original.get("discount", 0),
+        discount_type=original.get("discount_type", "amount"),
+        total=original.get("total", 0),
+        subject=original.get("subject"),
+        notes=original.get("notes"),
+        display_total_amounts=original.get("display_total_amounts", True),
+        created_by=current_user.id,
+        created_by_name=current_user.name
+    )
+
+    await db.estimates.insert_one(duplicate.model_dump())
+    await log_activity(current_user.company_id, current_user.id, current_user.name, "DUPLICATE_ESTIMATE", f"Duplicated estimate {original['estimate_number']}")
+
+    return duplicate.model_dump()
 
 # Company invoice settings
 @api_router.put("/company/invoice-settings")

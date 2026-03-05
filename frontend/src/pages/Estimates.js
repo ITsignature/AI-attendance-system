@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -277,6 +277,30 @@ export default function Estimates() {
     }
   };
 
+  const handleDuplicateEstimate = async (estimateId) => {
+    try {
+      await api.post(`/estimates/${estimateId}/duplicate`);
+      toast.success('Estimate duplicated as a new draft');
+      fetchEstimates();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to duplicate estimate');
+    }
+  };
+
+  const handleSendToCustomer = async (estimateId) => {
+    try {
+      await api.put(`/estimates/${estimateId}/send`);
+      toast.success('Estimate marked as Sent');
+      fetchEstimates();
+      // Open the view modal after marking as sent
+      const response = await api.get(`/estimates/${estimateId}`);
+      setSelectedEstimate(response.data);
+      setViewDialogOpen(true);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to send estimate');
+    }
+  };
+
   const handleDownloadEstimatePDF = async () => {
     try {
       const element = document.getElementById('estimate-pdf-content');
@@ -423,7 +447,7 @@ export default function Estimates() {
             )}
             <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
               <Plus className="w-4 h-4" />
-              Create Estimatesss
+              Create Estimates
             </Button>
           </div>
         </div>
@@ -515,6 +539,18 @@ export default function Estimates() {
                           View
                         </Button>
 
+                        {/* Send to Customer - only for draft estimates */}
+                        {estimate.status === 'draft' && (
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => handleSendToCustomer(estimate.id)}
+                          >
+                            <Send className="w-4 h-4 mr-1" />
+                            Send to Customer
+                          </Button>
+                        )}
+
                         {/* Approve/Reject buttons - only for admin/manager/accountant */}
                         {(user?.role === 'admin' || user?.role === 'manager' || user?.role === 'accountant') && estimate.approval_status === 'pending' && (
                           <>
@@ -584,6 +620,15 @@ export default function Estimates() {
                             >
                               <Pencil className="w-4 h-4 mr-1" />
                               Edit
+                            </Button>
+                            {/* Duplicate button */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDuplicateEstimate(estimate.id)}
+                            >
+                              <Copy className="w-4 h-4 mr-1" />
+                              Duplicate
                             </Button>
                           </>
                         )}
@@ -775,9 +820,10 @@ export default function Estimates() {
                     <div className="col-span-2">
                       <Input
                         type="number"
-                        step="0.01"
+                        step="1"
+                        min="1"
                         value={item.quantity}
-                        onChange={(e) => updateEstimateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                        onChange={(e) => updateEstimateItem(index, 'quantity', parseInt(e.target.value) || 0)}
                         placeholder="Qty *"
                         required
                       />
