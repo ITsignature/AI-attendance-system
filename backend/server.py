@@ -265,6 +265,22 @@ class Product(BaseModel):
     deleted_at: Optional[str] = None
     deleted_by: Optional[str] = None
 
+def parse_dimension(size_str):
+    """Parse '1x2', '1X2', or '1*2' into 1*2=2.0. Returns float."""
+    import re
+    if not size_str:
+        return 0.0
+    parts = re.split(r'[xX*]', str(size_str))
+    if len(parts) == 2:
+        try:
+            return float(parts[0]) * float(parts[1])
+        except:
+            return 0.0
+    try:
+        return float(size_str)
+    except:
+        return 0.0
+
 class InvoiceItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -278,6 +294,8 @@ class InvoiceItem(BaseModel):
     unit_price: float
     total: float
     display_amounts: bool = True  # For estimates: whether to show amounts in view
+    offcut_size: Optional[str] = None
+    offcut_rate: Optional[float] = None
 
 class Invoice(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -2905,17 +2923,30 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
     # Process items
     items = []
     for item_data in estimate_data["items"]:
+        unit = item_data.get("unit", "pcs")
+        quantity = float(item_data.get("quantity") or 1)
+        unit_price = float(item_data.get("unit_price", 0))
+        if unit == "sqft":
+            main_total = parse_dimension(item_data.get("size")) * unit_price
+            offcut_total = parse_dimension(item_data.get("offcut_size")) * float(item_data.get("offcut_rate") or 0)
+            calc_total = (main_total + offcut_total) * quantity
+        elif unit == "sqin":
+            calc_total = parse_dimension(item_data.get("size")) * unit_price * quantity
+        else:
+            calc_total = quantity * unit_price
         item = InvoiceItem(
             product_id=item_data.get("product_id"),
             product_name=item_data["product_name"],
             description=item_data.get("description"),
             category_id=item_data.get("category_id"),
             size=item_data.get("size"),
-            unit=item_data.get("unit", "pcs"),
-            quantity=item_data["quantity"],
-            unit_price=item_data["unit_price"],
-            total=item_data["quantity"] * item_data["unit_price"],
-            display_amounts=item_data.get("display_amounts", True)
+            unit=unit,
+            quantity=quantity,
+            unit_price=unit_price,
+            total=calc_total,
+            display_amounts=item_data.get("display_amounts", True),
+            offcut_size=item_data.get("offcut_size"),
+            offcut_rate=item_data.get("offcut_rate")
         )
         items.append(item.model_dump())
 
@@ -3095,19 +3126,30 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
     # Process items to calculate totals
     items = []
     for item_data in estimate_data.get("items", []):
-        quantity = float(item_data["quantity"])
-        unit_price = float(item_data["unit_price"])
+        unit = item_data.get("unit", "pcs")
+        quantity = float(item_data.get("quantity") or 1)
+        unit_price = float(item_data.get("unit_price", 0))
+        if unit == "sqft":
+            main_total = parse_dimension(item_data.get("size")) * unit_price
+            offcut_total = parse_dimension(item_data.get("offcut_size")) * float(item_data.get("offcut_rate") or 0)
+            calc_total = (main_total + offcut_total) * quantity
+        elif unit == "sqin":
+            calc_total = parse_dimension(item_data.get("size")) * unit_price * quantity
+        else:
+            calc_total = quantity * unit_price
         item = {
             "product_id": item_data.get("product_id"),
             "product_name": item_data["product_name"],
             "description": item_data.get("description"),
             "category_id": item_data.get("category_id"),
             "size": item_data.get("size"),
-            "unit": item_data.get("unit", "pcs"),
+            "unit": unit,
             "quantity": quantity,
             "unit_price": unit_price,
-            "total": quantity * unit_price,
-            "display_amounts": item_data.get("display_amounts", True)
+            "total": calc_total,
+            "display_amounts": item_data.get("display_amounts", True),
+            "offcut_size": item_data.get("offcut_size"),
+            "offcut_rate": item_data.get("offcut_rate")
         }
         items.append(item)
 

@@ -57,7 +57,7 @@ export default function Estimates() {
     display_total_amounts: true,
     discount: 0,
     discount_type: 'amount',
-    items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true }]
+    items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
   });
 
   useEffect(() => {
@@ -234,7 +234,9 @@ export default function Estimates() {
         unit: item.unit || 'pcs',
         quantity: item.quantity,
         unit_price: item.unit_price,
-        display_amounts: item.display_amounts !== undefined ? item.display_amounts : true
+        display_amounts: item.display_amounts !== undefined ? item.display_amounts : true,
+        offcut_size: item.offcut_size || '',
+        offcut_rate: item.offcut_rate || 0
       }))
     });
     setCreateDialogOpen(true);
@@ -250,7 +252,7 @@ export default function Estimates() {
       display_total_amounts: true,
       discount: 0,
       discount_type: 'amount',
-      items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true }]
+      items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
     });
     setEditingEstimate(null);
   };
@@ -354,7 +356,7 @@ export default function Estimates() {
   const addEstimateItem = () => {
     setEstimateForm({
       ...estimateForm,
-      items: [...estimateForm.items, { product_id: '', product_name: '', description: '', quantity: 1, unit_price: 0, display_amounts: true }]
+      items: [...estimateForm.items, { product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: 1, unit_price: 0, display_amounts: true, offcut_size: '', offcut_rate: 0 }]
     });
   };
 
@@ -375,17 +377,40 @@ export default function Estimates() {
         newItems[index].unit_price = product.price;
         newItems[index].category_id = product.category_id || '';
         newItems[index].unit = product.unit || 'pcs';
+        newItems[index].offcut_rate = product.offcut_rate || 0;
       }
     }
 
     setEstimateForm({ ...estimateForm, items: newItems });
   };
 
+  const parseDimension = (str) => {
+    if (!str) return 0;
+    const parts = String(str).toLowerCase().split(/[x*]/);
+    if (parts.length === 2) return (parseFloat(parts[0]) || 0) * (parseFloat(parts[1]) || 0);
+    return parseFloat(str) || 0;
+  };
+
+  const fmt = (num) => Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const getItemTotal = (item) => {
+    if (item.unit === 'sqft') {
+      const main = parseDimension(item.size) * (item.unit_price || 0);
+      const offcut = parseDimension(item.offcut_size) * (item.offcut_rate || 0);
+      const qty = parseInt(item.quantity) || 1;
+      return (main + offcut) * qty;
+    }
+    if (item.unit === 'sqin') {
+      const qty = parseInt(item.quantity) || 1;
+      return parseDimension(item.size) * (item.unit_price || 0) * qty;
+    }
+    return (item.quantity || 0) * (item.unit_price || 0);
+  };
+
   const calculateTotal = (items) => {
     return items.reduce((sum, item) => {
-      // Only include items where display_amounts is true (or not explicitly set to false)
       if (item.display_amounts !== false) {
-        return sum + (item.quantity * item.unit_price);
+        return sum + getItemTotal(item);
       }
       return sum;
     }, 0);
@@ -663,7 +688,7 @@ export default function Estimates() {
           setCreateDialogOpen(open);
           if (!open) resetForm();
         }}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingEstimate ? 'Edit Estimate' : 'Create New Estimate'}</DialogTitle>
             </DialogHeader>
@@ -797,6 +822,14 @@ export default function Estimates() {
                         onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
                         placeholder="Size"
                       />
+                      {item.unit === 'sqft' && (
+                        <Input
+                          value={item.offcut_size}
+                          onChange={(e) => updateEstimateItem(index, 'offcut_size', e.target.value)}
+                          placeholder="Offcut Size"
+                          className="mt-1 text-xs"
+                        />
+                      )}
                     </div>
                     {/* <div className="col-span-1">
                       <Select
@@ -839,7 +872,7 @@ export default function Estimates() {
                       />
                     </div>
                     <div className="col-span-1">
-                      <p className="text-sm font-semibold text-center">Rs {(item.quantity * item.unit_price).toFixed(2)}</p>
+                      <p className="text-sm font-semibold text-center">Rs {fmt(getItemTotal(item))}</p>
                     </div>
                     <div className="col-span-1 flex items-center justify-center">
                       <input
@@ -882,7 +915,7 @@ export default function Estimates() {
                   <div className="flex justify-end">
                     <div className="text-right">
                       <p className="text-sm text-gray-600">Subtotal</p>
-                      <p className="text-2xl font-bold text-green-600">Rs {calculateTotal(estimateForm.items).toFixed(2)}</p>
+                      <p className="text-2xl font-bold text-green-600">Rs {fmt(calculateTotal(estimateForm.items))}</p>
                     </div>
                   </div>
                 </div>
@@ -924,29 +957,29 @@ export default function Estimates() {
                 <div className="col-span-12 text-sm">
                   <div className="flex justify-between py-1">
                     <span className="text-gray-600">Subtotal:</span>
-                    <span className="font-semibold">Rs {calculateTotal(estimateForm.items).toFixed(2)}</span>
+                    <span className="font-semibold">Rs {fmt(calculateTotal(estimateForm.items))}</span>
                   </div>
                   {estimateForm.discount > 0 && (
                     <div className="flex justify-between py-1 text-red-600">
                       <span>Discount:</span>
                       <span>
-                        - Rs {(estimateForm.discount_type === 'percentage'
+                        - Rs {fmt(estimateForm.discount_type === 'percentage'
                           ? calculateTotal(estimateForm.items) * (estimateForm.discount / 100)
                           : estimateForm.discount
-                        ).toFixed(2)}
+                        )}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between py-1 text-lg font-bold border-t mt-1 pt-1">
                     <span>Total:</span>
                     <span className="text-green-600">
-                      Rs {(
+                      Rs {fmt(
                         calculateTotal(estimateForm.items) -
                         (estimateForm.discount_type === 'percentage'
                           ? calculateTotal(estimateForm.items) * (estimateForm.discount / 100)
                           : estimateForm.discount
                         )
-                      ).toFixed(2)}
+                      )}
                     </span>
                   </div>
                 </div>
@@ -1229,7 +1262,6 @@ export default function Estimates() {
                     </thead>
                     <tbody>
                       {selectedEstimate.items
-                        .filter(item => item.display_amounts !== false)
                         .map((item, index) => (
                         <tr key={index}>
                           <td className="border border-black p-3">
@@ -1243,10 +1275,10 @@ export default function Estimates() {
                           <td className="border border-black text-center p-3">{item.size || ''}</td>
                           <td className="border border-black text-center p-3">{item.quantity}</td>
                           <td className="border border-black text-center p-3">
-                            {selectedEstimate.display_total_amounts !== false ? `Rs.${item.unit_price.toFixed(2)}` : ''}
+                            {item.display_amounts !== false && selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(item.unit_price)}` : ''}
                           </td>
                           <td className="border border-black text-right p-3">
-                            {selectedEstimate.display_total_amounts !== false ? `Rs.${item.total.toFixed(2)}` : ''}
+                            {item.display_amounts !== false && selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(item.total)}` : ''}
                           </td>
                         </tr>
                       ))}
@@ -1255,7 +1287,7 @@ export default function Estimates() {
                         <tr className="bg-white">
                           <td colSpan="4" className="border border-black text-right p-3">Subtotal</td>
                           <td className="border border-black text-right p-3">
-                            {selectedEstimate.display_total_amounts !== false ? `Rs.${selectedEstimate.subtotal.toFixed(2)}` : ''}
+                            {selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(selectedEstimate.subtotal)}` : ''}
                           </td>
                         </tr>
                       )}
@@ -1266,10 +1298,10 @@ export default function Estimates() {
                             Discount {selectedEstimate.discount_type === 'percentage' ? `(${selectedEstimate.discount}%)` : ''}
                           </td>
                           <td className="border border-black text-right p-3">
-                            - Rs.{(selectedEstimate.discount_type === 'percentage'
+                            - Rs.{fmt(selectedEstimate.discount_type === 'percentage'
                               ? selectedEstimate.subtotal * (selectedEstimate.discount / 100)
                               : selectedEstimate.discount
-                            ).toFixed(2)}
+                            )}
                           </td>
                         </tr>
                       )}
@@ -1277,7 +1309,7 @@ export default function Estimates() {
                       <tr className="bg-white">
                         <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
                         <td className="border border-black text-right p-3 font-bold">
-                          {selectedEstimate.display_total_amounts !== false ? `Rs.${selectedEstimate.total.toFixed(2)}` : ''}
+                          {selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(selectedEstimate.total)}` : ''}
                         </td>
                       </tr>
                     </tbody>
