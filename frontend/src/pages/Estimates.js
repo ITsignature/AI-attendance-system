@@ -792,11 +792,13 @@ export default function Estimates() {
                       </Select>
                     </div>
                     <div className="col-span-3">
-                      <Input
+                      <Textarea
                         value={item.product_name}
                         onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
                         placeholder="Name *"
                         required
+                        rows={1}
+                        className="min-h-0 resize"
                       />
                     </div>
                     {/* <div className="col-span-1">
