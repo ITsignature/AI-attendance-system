@@ -622,7 +622,7 @@ export default function Attendance() {
     }
   };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager'|| user?.role === 'accountant';
 
   if (loading) {
     return (
