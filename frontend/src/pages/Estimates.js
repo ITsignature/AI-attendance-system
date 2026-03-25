@@ -54,6 +54,7 @@ export default function Estimates() {
     valid_until: getDefaultValidUntil(),
     subject: '',
     notes: '',
+    production_notes: '',
     display_total_amounts: true,
     discount: 0,
     discount_type: 'amount',
@@ -222,6 +223,7 @@ export default function Estimates() {
       valid_until: estimate.valid_until,
       subject: estimate.subject || '',
       notes: estimate.notes || '',
+      production_notes: estimate.production_notes || '',
       display_total_amounts: estimate.display_total_amounts !== undefined ? estimate.display_total_amounts : true,
       discount: estimate.discount || 0,
       discount_type: estimate.discount_type || 'amount',
@@ -249,6 +251,7 @@ export default function Estimates() {
       valid_until: getDefaultValidUntil(),
       subject: '',
       notes: '',
+      production_notes: '',
       display_total_amounts: true,
       discount: 0,
       discount_type: 'amount',
@@ -436,6 +439,8 @@ export default function Estimates() {
     return customer?.name || 'Unknown';
   };
 
+  
+
   if (loading) {
     return (
       <Layout>
@@ -515,6 +520,11 @@ export default function Estimates() {
                           PENDING APPROVAL
                         </span>
                       )}
+                      {estimate.production_notes && (
+                        <span className="px-2 py-1 rounded text-xs font-semibold bg-orange-100 text-orange-700" title={estimate.production_notes}>
+                          📋 PRODUCTION NOTES
+                        </span>
+                      )}
                     </div>
                     <div className="grid grid-cols-4 gap-4 text-sm">
                       <div>
@@ -537,6 +547,14 @@ export default function Estimates() {
                         <p className="font-semibold text-green-600">Rs {estimate.total.toLocaleString()}</p>
                       </div>
                     </div>
+                    {estimate.production_notes && (
+                      <div className="mt-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded text-xs text-orange-800">
+                        <span className="font-semibold">Production Notes: </span>
+                        {estimate.production_notes.length > 120
+                          ? estimate.production_notes.slice(0, 120) + '…'
+                          : estimate.production_notes}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     {showDeleted ? (
@@ -996,6 +1014,17 @@ export default function Estimates() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Production notes <span className="text-xs text-gray-400 font-normal">(internal only, not shown to customer)</span>
+                </label>
+                <Textarea
+                  value={estimateForm.production_notes}
+                  onChange={(e) => setEstimateForm({...estimateForm, production_notes: e.target.value})}
+                  rows={2}
+                />
+              </div>
+
               <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
                 <input
                   type="checkbox"
@@ -1324,6 +1353,7 @@ export default function Estimates() {
                     <p className="text-sm text-gray-700">{selectedEstimate.notes}</p>
                   </div>
                 )}
+
 
                 {/* Terms and Conditions */}
                 <div className="mb-6 text-sm">

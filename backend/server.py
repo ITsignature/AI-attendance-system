@@ -353,6 +353,7 @@ class Estimate(BaseModel):
     subject: Optional[str] = None  # Subject/title of the estimate
     notes: Optional[str] = None
     display_total_amounts: bool = True  # Whether to show amounts in estimate view
+    production_notes: Optional[str] = None
     created_by: str
     created_by_name: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -2977,6 +2978,7 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
         total=total,
         subject=estimate_data.get("subject"),
         notes=estimate_data.get("notes"),
+        production_notes=estimate_data.get("production_notes"),
         display_total_amounts=estimate_data.get("display_total_amounts", True),
         created_by=current_user.id,
         created_by_name=current_user.name
@@ -3178,6 +3180,7 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
         "total": total,
         "subject": estimate_data.get("subject", estimate.get("subject")),
         "notes": estimate_data.get("notes", estimate.get("notes")),
+        "production_notes" : estimate_data.get("production_notes", estimate.get("production_notes")),
         "display_total_amounts": estimate_data.get("display_total_amounts", estimate.get("display_total_amounts", True))
     }
 
