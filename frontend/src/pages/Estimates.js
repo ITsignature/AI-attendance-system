@@ -55,6 +55,7 @@ export default function Estimates() {
     subject: '',
     notes: '',
     production_notes: '',
+    bank_account: 'ndb',
     display_total_amounts: true,
     discount: 0,
     discount_type: 'amount',
@@ -224,6 +225,7 @@ export default function Estimates() {
       subject: estimate.subject || '',
       notes: estimate.notes || '',
       production_notes: estimate.production_notes || '',
+      bank_account: estimate.bank_account || 'ndb',
       display_total_amounts: estimate.display_total_amounts !== undefined ? estimate.display_total_amounts : true,
       discount: estimate.discount || 0,
       discount_type: estimate.discount_type || 'amount',
@@ -252,6 +254,7 @@ export default function Estimates() {
       subject: '',
       notes: '',
       production_notes: '',
+      bank_account: 'ndb',
       display_total_amounts: true,
       discount: 0,
       discount_type: 'amount',
@@ -1025,6 +1028,22 @@ export default function Estimates() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium mb-1">Bank Account for Payment</label>
+                <Select
+                  value={estimateForm.bank_account}
+                  onValueChange={(value) => setEstimateForm({ ...estimateForm, bank_account: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ndb">NDB Bank — Ekma Digital Solutions Pvt Ltd (101000707296)</SelectItem>
+                    <SelectItem value="commercial">Commercial Bank — Ekma Digital Solutions (Pvt) Ltd (1001073055)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
                 <input
                   type="checkbox"
@@ -1361,7 +1380,12 @@ export default function Estimates() {
                     An advance of 70% (Seventy Percent) is requested at the time of placing of the order. This quotation is valid for 30 Days.
                   </p>
                   <p>
-                    The online payment to be made to "<strong>Bank Name - NDB Bank | Acc.Name - Ekma Digital Solutions Pvt Ltd | Acc. Number- 101000707296 | Branch - Boralesgamuwa</strong>"
+                    The online payment to be made to "
+                    <strong>
+                      {selectedEstimate.bank_account === 'commercial'
+                        ? 'Bank Name - Commercial Bank | Acc.Name - Ekma Digital Solutions (Private) Limited | Acc. Number- 1001073055'
+                        : 'Bank Name - NDB Bank | Acc.Name - Ekma Digital Solutions Pvt Ltd | Acc. Number- 101000707296 | Branch - Boralesgamuwa'}
+                    </strong>"
                   </p>
                 </div>
 
