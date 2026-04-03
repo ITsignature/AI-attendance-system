@@ -368,6 +368,7 @@ class Estimate(BaseModel):
     rejected_by: Optional[str] = None
     rejected_by_name: Optional[str] = None
     rejected_at: Optional[str] = None
+    share_token: Optional[str] = None
 
 
 # ============= LOCATION TRACKING MODELS =============
@@ -3326,6 +3327,39 @@ async def duplicate_estimate(estimate_id: str, current_user: User = Depends(get_
     await log_activity(current_user.company_id, current_user.id, current_user.name, "DUPLICATE_ESTIMATE", f"Duplicated estimate {original['estimate_number']}")
 
     return duplicate.model_dump()
+
+@api_router.post("/estimates/{estimate_id}/share-token")
+async def generate_share_token(estimate_id: str, current_user: User = Depends(get_current_user)):
+    """Generate a public share token for an estimate"""
+    if current_user.role not in ["admin", "manager", "accountant", "employee", "staff_member"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    estimate = await db.estimates.find_one({"id": estimate_id, "company_id": current_user.company_id, "deleted": False})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    # Reuse existing token if already generated
+    if estimate.get("share_token"):
+        return {"share_token": estimate["share_token"]}
+
+    token = str(uuid.uuid4())
+    await db.estimates.update_one(
+        {"id": estimate_id},
+        {"$set": {"share_token": token}}
+    )
+    return {"share_token": token}
+
+@api_router.get("/estimates/public/{share_token}")
+async def get_public_estimate(share_token: str):
+    """Get estimate by share token — no authentication required"""
+    estimate = await db.estimates.find_one({"share_token": share_token, "deleted": False}, {"_id": 0})
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    customer = await db.customers.find_one({"id": estimate["customer_id"]}, {"_id": 0})
+    estimate["customer"] = customer
+
+    return estimate
 
 # Company invoice settings
 @api_router.put("/company/invoice-settings")

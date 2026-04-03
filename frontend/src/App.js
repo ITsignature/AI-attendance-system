@@ -25,6 +25,7 @@ import InvoiceCustomers from "./pages/InvoiceCustomers";
 import InvoiceProducts from "./pages/InvoiceProducts";
 import LocationReports from "./pages/LocationReports";
 import AttendanceDetails from "./pages/AttendanceDetails";
+import PublicEstimateView from "./pages/PublicEstimateView";
 import { Toaster } from "./components/ui/sonner";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
@@ -56,6 +57,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/login/select-role" element={<LoginRoleSelection />} />
+          <Route path="/estimate/view/:token" element={<PublicEstimateView />} />
           <Route path="/superadmin" element={
             <ProtectedRoute allowedRoles={['super_admin']}>
               <SuperAdminDashboard />

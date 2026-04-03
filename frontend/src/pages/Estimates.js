@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -328,6 +328,17 @@ export default function Estimates() {
       toast.success('PDF downloaded successfully');
     } catch (error) {
       toast.error('Failed to generate PDF');
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    try {
+      const res = await api.post(`/estimates/${selectedEstimate.id}/share-token`);
+      const url = `${window.location.origin}/estimate/view/${res.data.share_token}`;
+      await navigator.clipboard.writeText(url);
+      toast.success('Share link copied to clipboard');
+    } catch (error) {
+      toast.error('Failed to generate share link');
     }
   };
 
@@ -1249,14 +1260,25 @@ export default function Estimates() {
               <DialogHeader>
                 <div className="flex items-center justify-between">
                   <DialogTitle>Estimate Preview</DialogTitle>
-                  <Button
-                    size="sm"
-                    onClick={handleDownloadEstimatePDF}
-                    className="flex items-center gap-2 mr-16"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download PDF
-                  </Button>
+                  <div className="flex items-center gap-2 mr-16">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCopyShareLink}
+                      className="flex items-center gap-2"
+                    >
+                      <Link2 className="w-4 h-4" />
+                      Copy Share Link
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleDownloadEstimatePDF}
+                      className="flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download PDF
+                    </Button>
+                  </div>
                 </div>
               </DialogHeader>
               <div id="estimate-pdf-content" className="bg-white px-12 py-8">
