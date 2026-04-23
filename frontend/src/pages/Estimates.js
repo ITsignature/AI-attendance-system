@@ -310,24 +310,114 @@ export default function Estimates() {
   };
 
   const handleDownloadEstimatePDF = async () => {
+    const element = document.getElementById('estimate-pdf-content');
+
+    // Remove scroll/height constraints on all scrollable ancestors so
+    // html2canvas captures the full content, not just the visible scroll area
+    const constrained = [];
+    let node = element.parentElement;
+    while (node && node !== document.body) {
+      const cs = window.getComputedStyle(node);
+      if (cs.overflowY === 'auto' || cs.overflowY === 'scroll' || cs.maxHeight !== 'none') {
+        constrained.push({ el: node, overflowY: node.style.overflowY, maxHeight: node.style.maxHeight });
+        node.style.overflowY = 'visible';
+        node.style.maxHeight = 'none';
+      }
+      node = node.parentElement;
+    }
+
     try {
-      const element = document.getElementById('estimate-pdf-content');
-      const canvas = await html2canvas(element, {
-        scale: 1.5,
-        useCORS: true,
-        logging: false
-      });
+      // ── Step 1: measure all DOM positions BEFORE html2canvas runs ────────
+      // getBoundingClientRect() is viewport-relative; we store the element's
+      // top as an anchor and compute relative offsets from it. All measurements
+      // happen in one synchronous block so no reflow can shift positions.
+      const elementRect = element.getBoundingClientRect();
+      const relBottomPx = (el) => el.getBoundingClientRect().bottom - elementRect.top;
+      const relTopPx    = (el) => el.getBoundingClientRect().top    - elementRect.top;
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.85);
+      const tableRows = Array.from(element.querySelectorAll('table tr'));
+      // Store row bottoms in CSS pixels (relative to element top)
+      const rowBottomsCss = tableRows.map(row => relBottomPx(row));
+
+      const table = element.querySelector('table');
+      const afterTable = table ? table.parentElement.nextElementSibling : null;
+      const postTableTopCss = afterTable ? relTopPx(afterTable) : elementRect.height;
+
+      // ── Step 2: capture canvas ───────────────────────────────────────────
+      const canvas = await html2canvas(element, { scale: 1.5, useCORS: true, logging: false });
+
+      // Derive the true scale from the actual canvas dimensions so any
+      // rounding/DPR differences are automatically absorbed
+      const scaleY = canvas.height / elementRect.height;
+
+      // Convert pre-measured CSS-pixel positions into canvas pixels
+      const rowBreaks   = rowBottomsCss.map(y => y * scaleY);
+      const postTableTop = postTableTopCss * scaleY;
+
+      // ── Step 3: PDF layout constants ─────────────────────────────────────
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const pdfWidth     = pdf.internal.pageSize.getWidth();
+      const pageHeightMm = pdf.internal.pageSize.getHeight();
+      const marginMm     = 10;
+      const pxPerMm      = canvas.width / pdfWidth;
+      const usableHeightPx = (pageHeightMm - 2 * marginMm) * pxPerMm;
 
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      const safeBreaks = [...new Set([...rowBreaks, postTableTop])]
+        .filter(bp => bp > 0 && bp < canvas.height)
+        .sort((a, b) => a - b);
+
+      // Determine slice boundaries
+      const slices = [];
+      let cur = 0;
+      while (cur < canvas.height) {
+        const ideal = cur + usableHeightPx;
+        if (ideal >= canvas.height) {
+          slices.push({ start: cur, end: canvas.height });
+          break;
+        }
+        // Use the last safe break that fits within this page's usable height
+        const valid = safeBreaks.filter(bp => bp > cur && bp <= ideal);
+        const breakAt = valid.length > 0 ? valid[valid.length - 1] : ideal;
+        slices.push({ start: cur, end: breakAt });
+        cur = breakAt;
+      }
+
+      // Margin is only added at actual page-break edges:
+      //   - first page: no top padding (content starts naturally), bottom padding only if there is a next page
+      //   - middle pages: top + bottom padding
+      //   - last page: top padding only if there was a previous page, no bottom padding
+      const paddingPx = Math.round(marginMm * pxPerMm);
+      const totalPages = slices.length;
+
+      for (let i = 0; i < totalPages; i++) {
+        const { start, end } = slices[i];
+        const sliceH = end - start;
+        if (sliceH <= 0) continue;
+
+        const topPad    = i === 0            ? 0 : paddingPx;
+        const bottomPad = i === totalPages - 1 ? 0 : paddingPx;
+
+        const paddedCanvas = document.createElement('canvas');
+        paddedCanvas.width  = canvas.width;
+        paddedCanvas.height = sliceH + topPad + bottomPad;
+        const ctx = paddedCanvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, paddedCanvas.width, paddedCanvas.height);
+        ctx.drawImage(canvas, 0, start, canvas.width, sliceH, 0, topPad, canvas.width, sliceH);
+
+        if (i > 0) pdf.addPage();
+        pdf.addImage(paddedCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pdfWidth, paddedCanvas.height / pxPerMm);
+      }
+
       pdf.save(`Estimate-${selectedEstimate.estimate_number}.pdf`);
       toast.success('PDF downloaded successfully');
     } catch (error) {
       toast.error('Failed to generate PDF');
+    } finally {
+      constrained.forEach(({ el, overflowY, maxHeight }) => {
+        el.style.overflowY = overflowY;
+        el.style.maxHeight = maxHeight;
+      });
     }
   };
 
