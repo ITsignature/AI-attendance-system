@@ -327,86 +327,148 @@ export default function Estimates() {
     }
 
     try {
-      // ── Step 1: measure all DOM positions BEFORE html2canvas runs ────────
-      // getBoundingClientRect() is viewport-relative; we store the element's
-      // top as an anchor and compute relative offsets from it. All measurements
-      // happen in one synchronous block so no reflow can shift positions.
+      // ── Step 1: measure DOM positions BEFORE html2canvas ─────────────────
       const elementRect = element.getBoundingClientRect();
-      const relBottomPx = (el) => el.getBoundingClientRect().bottom - elementRect.top;
-      const relTopPx    = (el) => el.getBoundingClientRect().top    - elementRect.top;
+      const relTop    = (el) => el.getBoundingClientRect().top    - elementRect.top;
+      const relBottom = (el) => el.getBoundingClientRect().bottom - elementRect.top;
 
-      const tableRows = Array.from(element.querySelectorAll('table tr'));
-      // Store row bottoms in CSS pixels (relative to element top)
-      const rowBottomsCss = tableRows.map(row => relBottomPx(row));
+      // Header = first child div (logo + date box section)
+      const headerEl        = element.firstElementChild;
+      const headerBottomCss = relBottom(headerEl);
 
-      const table = element.querySelector('table');
-      const afterTable = table ? table.parentElement.nextElementSibling : null;
-      const postTableTopCss = afterTable ? relTopPx(afterTable) : elementRect.height;
+      // Date/quotation box = right child of header — hidden on pages 2+
+      const dateBoxEl = headerEl ? headerEl.lastElementChild : null;
+      const dateBoxRect = dateBoxEl ? dateBoxEl.getBoundingClientRect() : null;
+      const dateBoxCss = dateBoxRect ? {
+        left:   dateBoxRect.left   - elementRect.left,
+        top:    dateBoxRect.top    - elementRect.top,
+        width:  dateBoxRect.width,
+        height: dateBoxRect.height,
+      } : null;
 
-      // ── Step 2: capture canvas ───────────────────────────────────────────
+      // Footer = everything after the table (notes + terms + signature)
+      const table        = element.querySelector('table');
+      const afterTableEl = table ? table.parentElement.nextElementSibling : null;
+      const footerTopCss = afterTableEl ? relTop(afterTableEl) : elementRect.height;
+
+      // Table rows for break-point detection
+      const tableRows     = Array.from(element.querySelectorAll('table tr'));
+      const rowBottomsCss = tableRows.map(row => relBottom(row));
+
+      // ── Step 2: capture full canvas ───────────────────────────────────────
       const canvas = await html2canvas(element, { scale: 1.5, useCORS: true, logging: false });
 
-      // Derive the true scale from the actual canvas dimensions so any
-      // rounding/DPR differences are automatically absorbed
-      const scaleY = canvas.height / elementRect.height;
+      const scaleY  = canvas.height / elementRect.height;
+      const scaleX  = canvas.width  / elementRect.width;
+      const pxPerMm = canvas.width  / 210;
 
-      // Convert pre-measured CSS-pixel positions into canvas pixels
-      const rowBreaks   = rowBottomsCss.map(y => y * scaleY);
-      const postTableTop = postTableTopCss * scaleY;
+      // Date box in canvas pixels (used to white it out on pages 2+)
+      const dateBoxPx = dateBoxCss ? {
+        left:   Math.floor(dateBoxCss.left   * scaleX),
+        top:    Math.floor(dateBoxCss.top    * scaleY),
+        width:  Math.ceil (dateBoxCss.width  * scaleX) + 4,
+        height: Math.ceil (dateBoxCss.height * scaleY) + 4,
+      } : null;
 
-      // ── Step 3: PDF layout constants ─────────────────────────────────────
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      // Convert CSS → canvas pixels
+      const headerBottomPx  = Math.round(headerBottomCss * scaleY);
+      const footerTopPx     = Math.round(footerTopCss    * scaleY);
+      const footerHeightPx  = canvas.height - footerTopPx;
+      const contentStartPx  = headerBottomPx;
+      const contentHeightPx = footerTopPx - contentStartPx;
+
+      // Row breaks relative to content start
+      const rowBreaksPx = rowBottomsCss
+        .map(y => Math.round(y * scaleY) - contentStartPx)
+        .filter(bp => bp > 0 && bp < contentHeightPx);
+
+      // ── Step 3: PDF constants ─────────────────────────────────────────────
+      const pdf          = new jsPDF('p', 'mm', 'a4');
       const pdfWidth     = pdf.internal.pageSize.getWidth();
       const pageHeightMm = pdf.internal.pageSize.getHeight();
-      const marginMm     = 10;
-      const pxPerMm      = canvas.width / pdfWidth;
-      const usableHeightPx = (pageHeightMm - 2 * marginMm) * pxPerMm;
 
-      const safeBreaks = [...new Set([...rowBreaks, postTableTop])]
-        .filter(bp => bp > 0 && bp < canvas.height)
-        .sort((a, b) => a - b);
+      const breakMarginPx = Math.round(5 * pxPerMm); // 5 mm at each break edge
+      const fullPagePx    = Math.round(pageHeightMm * pxPerMm);
+      // On pages 2+ the header is drawn at 85% height to save vertical space,
+      // keeping the logo readable while fitting more content per page
+      const headerScale2  = 0.85;
 
-      // Determine slice boundaries
+      // ── Step 4: paginate content region ───────────────────────────────────
+      // Each slice stores the actual header height used on that page so the
+      // renderer and the pagination both agree on available space.
       const slices = [];
       let cur = 0;
-      while (cur < canvas.height) {
-        const ideal = cur + usableHeightPx;
-        if (ideal >= canvas.height) {
-          slices.push({ start: cur, end: canvas.height });
+
+      while (cur < contentHeightPx) {
+        const isFirst   = slices.length === 0;
+        const topPad    = isFirst ? 0 : breakMarginPx;
+        const hPx       = isFirst ? headerBottomPx : Math.round(headerBottomPx * headerScale2);
+        const fixedPx   = hPx + footerHeightPx;
+        const maxContent = fullPagePx - fixedPx - topPad - breakMarginPx;
+        const maxLast    = fullPagePx - fixedPx - topPad;
+
+        if (cur + maxLast >= contentHeightPx) {
+          slices.push({ start: cur, end: contentHeightPx, topPad, bottomPad: 0, hPx });
           break;
         }
-        // Use the last safe break that fits within this page's usable height
-        const valid = safeBreaks.filter(bp => bp > cur && bp <= ideal);
-        const breakAt = valid.length > 0 ? valid[valid.length - 1] : ideal;
-        slices.push({ start: cur, end: breakAt });
+
+        const ideal   = cur + Math.max(maxContent, 1);
+        const valid   = rowBreaksPx.filter(bp => bp > cur && bp <= ideal);
+        const breakAt = valid.length > 0 ? valid[valid.length - 1] : Math.max(ideal, cur + 1);
+
+        slices.push({ start: cur, end: breakAt, topPad, bottomPad: breakMarginPx, hPx });
         cur = breakAt;
       }
 
-      // Margin is only added at actual page-break edges:
-      //   - first page: no top padding (content starts naturally), bottom padding only if there is a next page
-      //   - middle pages: top + bottom padding
-      //   - last page: top padding only if there was a previous page, no bottom padding
-      const paddingPx = Math.round(marginMm * pxPerMm);
-      const totalPages = slices.length;
+      // ── Step 5: render each page ──────────────────────────────────────────
+      const borderOverlapPx = 3;
 
-      for (let i = 0; i < totalPages; i++) {
-        const { start, end } = slices[i];
-        const sliceH = end - start;
+      for (let i = 0; i < slices.length; i++) {
+        const { start, end, topPad, bottomPad, hPx } = slices[i];
+        const overlap  = i > 0 ? Math.min(borderOverlapPx, start) : 0;
+        const adjStart = start - overlap;
+        const sliceH   = end - adjStart;
         if (sliceH <= 0) continue;
 
-        const topPad    = i === 0            ? 0 : paddingPx;
-        const bottomPad = i === totalPages - 1 ? 0 : paddingPx;
+        const pageH      = hPx + topPad + sliceH + bottomPad + footerHeightPx;
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width  = canvas.width;
+        pageCanvas.height = pageH;
 
-        const paddedCanvas = document.createElement('canvas');
-        paddedCanvas.width  = canvas.width;
-        paddedCanvas.height = sliceH + topPad + bottomPad;
-        const ctx = paddedCanvas.getContext('2d');
+        const ctx = pageCanvas.getContext('2d');
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, paddedCanvas.width, paddedCanvas.height);
-        ctx.drawImage(canvas, 0, start, canvas.width, sliceH, 0, topPad, canvas.width, sliceH);
+        ctx.fillRect(0, 0, canvas.width, pageH);
+
+        // 1. Header — source is always full size; destination height is hPx
+        //    (scaled down to 85% on pages 2+ to save vertical space)
+        ctx.drawImage(canvas, 0, 0,
+                      canvas.width, headerBottomPx,
+                      0, 0, canvas.width, hPx);
+
+        // On pages 2+, white out the date/quotation box; also scale its Y position
+        if (i > 0 && dateBoxPx) {
+          const yScale = hPx / headerBottomPx;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(
+            dateBoxPx.left,
+            Math.floor(dateBoxPx.top  * yScale),
+            dateBoxPx.width,
+            Math.ceil (dateBoxPx.height * yScale) + 4
+          );
+        }
+
+        // 2. Content slice — placed after the (scaled) header + top break gap
+        ctx.drawImage(canvas, 0, contentStartPx + adjStart,
+                      canvas.width, sliceH,
+                      0, hPx + topPad, canvas.width, sliceH);
+
+        // 3. Footer — placed after content + bottom break gap
+        ctx.drawImage(canvas, 0, footerTopPx,
+                      canvas.width, footerHeightPx,
+                      0, hPx + topPad + sliceH + bottomPad, canvas.width, footerHeightPx);
 
         if (i > 0) pdf.addPage();
-        pdf.addImage(paddedCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pdfWidth, paddedCanvas.height / pxPerMm);
+        pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pdfWidth, pageH / pxPerMm);
       }
 
       pdf.save(`Estimate-${selectedEstimate.estimate_number}.pdf`);
