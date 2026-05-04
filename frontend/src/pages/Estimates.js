@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2 } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -25,6 +25,7 @@ export default function Estimates() {
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortByCustomer, setSortByCustomer] = useState('none'); // 'none' | 'asc' | 'desc'
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [editingEstimate, setEditingEstimate] = useState(null);
@@ -57,6 +58,7 @@ export default function Estimates() {
     production_notes: '',
     bank_account: 'ndb',
     display_total_amounts: true,
+    display_grand_total: true,
     discount: 0,
     discount_type: 'amount',
     items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
@@ -227,6 +229,7 @@ export default function Estimates() {
       production_notes: estimate.production_notes || '',
       bank_account: estimate.bank_account || 'ndb',
       display_total_amounts: estimate.display_total_amounts !== undefined ? estimate.display_total_amounts : true,
+      display_grand_total: estimate.display_grand_total !== undefined ? estimate.display_grand_total : true,
       discount: estimate.discount || 0,
       discount_type: estimate.discount_type || 'amount',
       items: estimate.items.map(item => ({
@@ -256,6 +259,7 @@ export default function Estimates() {
       production_notes: '',
       bank_account: 'ndb',
       display_total_amounts: true,
+      display_grand_total: true,
       discount: 0,
       discount_type: 'amount',
       items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
@@ -596,9 +600,19 @@ export default function Estimates() {
     }
   };
 
-  const filteredEstimates = estimates.filter(estimate =>
-    estimate.estimate_number.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEstimates = estimates
+    .filter(estimate => {
+      const term = searchTerm.toLowerCase();
+      const customer = customers.find(c => c.id === estimate.customer_id);
+      const customerName = (customer?.name || '').toLowerCase();
+      return estimate.estimate_number.toLowerCase().includes(term) || customerName.includes(term);
+    })
+    .sort((a, b) => {
+      if (sortByCustomer === 'none') return 0;
+      const nameA = (customers.find(c => c.id === a.customer_id)?.name || '').toLowerCase();
+      const nameB = (customers.find(c => c.id === b.customer_id)?.name || '').toLowerCase();
+      return sortByCustomer === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+    });
 
   const getCustomerName = (customerId) => {
     const customer = customers.find(c => c.id === customerId);
@@ -649,13 +663,23 @@ export default function Estimates() {
         </div>
 
         {estimates.length >= 5 && (
-          <div>
+          <div className="flex items-center gap-2">
             <Input
-              placeholder="Search by estimate number..."
+              placeholder="Search by estimate number or customer name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-md"
             />
+            <Button
+              variant={sortByCustomer !== 'none' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSortByCustomer(prev => prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none')}
+              title={sortByCustomer === 'asc' ? 'Sorted A–Z (click for Z–A)' : sortByCustomer === 'desc' ? 'Sorted Z–A (click to reset)' : 'Sort by customer name'}
+              className="flex items-center gap-1 whitespace-nowrap"
+            >
+              {sortByCustomer === 'asc' ? <ArrowUp className="w-4 h-4" /> : sortByCustomer === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4" />}
+              {sortByCustomer === 'asc' ? 'Customer A–Z' : sortByCustomer === 'desc' ? 'Customer Z–A' : 'Sort by Customer'}
+            </Button>
           </div>
         )}
 
@@ -1220,6 +1244,19 @@ export default function Estimates() {
                 </label>
               </div>
 
+              <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                <input
+                  type="checkbox"
+                  id="display-grand-total"
+                  checked={estimateForm.display_grand_total !== false}
+                  onChange={(e) => setEstimateForm({ ...estimateForm, display_grand_total: e.target.checked })}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="display-grand-total" className="text-sm font-medium cursor-pointer">
+                  Display Grand Total (uncheck to hide the grand total row in estimate view)
+                </label>
+              </div>
+
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
                   Cancel
@@ -1530,12 +1567,14 @@ export default function Estimates() {
                         </tr>
                       )}
                       {/* Total Row */}
-                      <tr className="bg-white">
-                        <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
-                        <td className="border border-black text-right p-3 font-bold">
-                          {selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(selectedEstimate.total)}` : ''}
-                        </td>
-                      </tr>
+                      {selectedEstimate.display_grand_total !== false && (
+                        <tr className="bg-white">
+                          <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
+                          <td className="border border-black text-right p-3 font-bold">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(selectedEstimate.total)}` : ''}
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
