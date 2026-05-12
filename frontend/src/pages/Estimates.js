@@ -9,9 +9,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2, ArrowUpDown, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+function SortableItem({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      {...attributes}
+    >
+      {children(listeners)}
+    </div>
+  );
+}
 
 export default function Estimates() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,7 +77,7 @@ export default function Estimates() {
     display_grand_total: true,
     discount: 0,
     discount_type: 'amount',
-    items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
+    items: [{ _uid: crypto.randomUUID(), product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
   });
 
   useEffect(() => {
@@ -233,6 +249,7 @@ export default function Estimates() {
       discount: estimate.discount || 0,
       discount_type: estimate.discount_type || 'amount',
       items: estimate.items.map(item => ({
+        _uid: item._uid || crypto.randomUUID(),
         product_id: item.product_id || '',
         product_name: item.product_name,
         description: item.description || '',
@@ -262,7 +279,7 @@ export default function Estimates() {
       display_grand_total: true,
       discount: 0,
       discount_type: 'amount',
-      items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
+      items: [{ _uid: crypto.randomUUID(), product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
     });
     setEditingEstimate(null);
   };
@@ -526,10 +543,21 @@ export default function Estimates() {
     }
   };
 
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = estimateForm.items.findIndex(i => i._uid === active.id);
+      const newIndex = estimateForm.items.findIndex(i => i._uid === over.id);
+      setEstimateForm({ ...estimateForm, items: arrayMove(estimateForm.items, oldIndex, newIndex) });
+    }
+  };
+
   const addEstimateItem = () => {
     setEstimateForm({
       ...estimateForm,
-      items: [...estimateForm.items, { product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: 1, unit_price: 0, display_amounts: true, offcut_size: '', offcut_rate: 0 }]
+      items: [...estimateForm.items, { _uid: crypto.randomUUID(), product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: 1, unit_price: 0, display_amounts: true, offcut_size: '', offcut_rate: 0 }]
     });
   };
 
@@ -969,157 +997,130 @@ export default function Estimates() {
 
                 {/* Column Headers */}
                 <div className="grid grid-cols-12 gap-2 mb-2 px-1">
+                  <div className="col-span-1"></div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Product</div>
-                  <div className="col-span-3 text-xs font-semibold text-gray-600">Name</div>
-                  {/* <div className="col-span-1 text-xs font-semibold text-gray-600">Category</div> */}
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Name</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600">Size</div>
-                  {/* <div className="col-span-1 text-xs font-semibold text-gray-600">Unit</div> */}
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Qty</div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Price</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Total</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Add</div>
-                  <div className="col-span-1"></div>
                 </div>
 
-                {estimateForm.items.map((item, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 mb-3 items-center">
-                    <div className="col-span-2">
-                      <Select
-                        value={item.product_id || "custom"}
-                        onValueChange={(value) => updateEstimateItem(index, 'product_id', value === "custom" ? "" : value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="custom">Custom Item</SelectItem>
-                          {products.map(product => (
-                            <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="col-span-3">
-                      <Textarea
-                        value={item.product_name}
-                        onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
-                        placeholder="Name *"
-                        required
-                        rows={1}
-                        className="min-h-0 resize"
-                      />
-                    </div>
-                    {/* <div className="col-span-1">
-                      <Select
-                        value={item.category_id || "none"}
-                        onValueChange={(value) => updateEstimateItem(index, 'category_id', value === "none" ? "" : value)}
-                        disabled={item.product_id && item.product_id !== ""}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {categories.map(category => (
-                            <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div> */}
-                    <div className="col-span-1">
-                      <Input
-                        value={item.size}
-                        onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
-                        placeholder="Size"
-                      />
-                      {item.unit === 'sqft' && (
-                        <Input
-                          value={item.offcut_size}
-                          onChange={(e) => updateEstimateItem(index, 'offcut_size', e.target.value)}
-                          placeholder="Offcut Size"
-                          className="mt-1 text-xs"
-                        />
-                      )}
-                    </div>
-                    {/* <div className="col-span-1">
-                      <Select
-                        value={item.unit || "pcs"}
-                        onValueChange={(value) => updateEstimateItem(index, 'unit', value)}
-                        disabled={item.product_id && item.product_id !== ""}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pcs">Pieces</SelectItem>
-                          <SelectItem value="kg">Kilograms</SelectItem>
-                          <SelectItem value="hrs">Hours</SelectItem>
-                          <SelectItem value="box">Box</SelectItem>
-                          <SelectItem value="set">Set</SelectItem>
-                          <SelectItem value="sqft">per sq.ft.</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div> */}
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        step="1"
-                        min="1"
-                        value={item.quantity}
-                        onChange={(e) => updateEstimateItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                        placeholder="Qty *"
-                        required
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={item.unit_price}
-                        onChange={(e) => updateEstimateItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                        placeholder="Price *"
-                        required
-                      />
-                    </div>
-                    <div className="col-span-1">
-                      <p className="text-sm font-semibold text-center">Rs {fmt(getItemTotal(item))}</p>
-                    </div>
-                    <div className="col-span-1 flex items-center justify-center">
-                      <input
-                        type="checkbox"
-                        checked={item.display_amounts !== false}
-                        onChange={(e) => updateEstimateItem(index, 'display_amounts', e.target.checked)}
-                        className="w-4 h-4 cursor-pointer"
-                        title="Include this item's total in grand total"
-                      />
-                    </div>
-                    <div className="col-span-1 flex gap-1">
-                      {!item.product_id && item.product_name && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="text-green-600"
-                          onClick={() => handleAddItemToProducts(item)}
-                          title="Add to Products"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {estimateForm.items.length > 1 && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600"
-                          onClick={() => removeEstimateItem(index)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={estimateForm.items.map(i => i._uid)} strategy={verticalListSortingStrategy}>
+                    {estimateForm.items.map((item, index) => (
+                      <SortableItem key={item._uid} id={item._uid}>
+                        {(dragListeners) => (
+                          <div className="grid grid-cols-12 gap-2 mb-3 items-center">
+                            <div className="col-span-1 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600" {...dragListeners}>
+                              <GripVertical className="w-4 h-4" />
+                            </div>
+                            <div className="col-span-2">
+                              <Select
+                                value={item.product_id || "custom"}
+                                onValueChange={(value) => updateEstimateItem(index, 'product_id', value === "custom" ? "" : value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Product" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="custom">Custom Item</SelectItem>
+                                  {products.map(product => (
+                                    <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-2">
+                              <Textarea
+                                value={item.product_name}
+                                onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
+                                placeholder="Name *"
+                                required
+                                rows={1}
+                                className="min-h-0 resize"
+                              />
+                            </div>
+                            <div className="col-span-1">
+                              <Input
+                                value={item.size}
+                                onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
+                                placeholder="Size"
+                              />
+                              {item.unit === 'sqft' && (
+                                <Input
+                                  value={item.offcut_size}
+                                  onChange={(e) => updateEstimateItem(index, 'offcut_size', e.target.value)}
+                                  placeholder="Offcut Size"
+                                  className="mt-1 text-xs"
+                                />
+                              )}
+                            </div>
+                            <div className="col-span-2">
+                              <Input
+                                type="number"
+                                step="1"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => updateEstimateItem(index, 'quantity', parseInt(e.target.value) || 0)}
+                                placeholder="Qty *"
+                                required
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.unit_price}
+                                onChange={(e) => updateEstimateItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                                placeholder="Price *"
+                                required
+                              />
+                            </div>
+                            <div className="col-span-1">
+                              <p className="text-sm font-semibold text-center">Rs {fmt(getItemTotal(item))}</p>
+                            </div>
+                            <div className="col-span-1 flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={item.display_amounts !== false}
+                                onChange={(e) => updateEstimateItem(index, 'display_amounts', e.target.checked)}
+                                className="w-4 h-4 cursor-pointer"
+                                title="Include this item's total in grand total"
+                              />
+                            </div>
+                            <div className="col-span-1 flex gap-1">
+                              {!item.product_id && item.product_name && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-green-600"
+                                  onClick={() => handleAddItemToProducts(item)}
+                                  title="Add to Products"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </Button>
+                              )}
+                              {estimateForm.items.length > 1 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-red-600"
+                                  onClick={() => removeEstimateItem(index)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </SortableItem>
+                    ))}
+                  </SortableContext>
+                </DndContext>
 
                 <div className="border-t pt-3 mt-3">
                   <div className="flex justify-end">
