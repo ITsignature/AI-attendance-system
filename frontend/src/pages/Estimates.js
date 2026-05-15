@@ -311,22 +311,63 @@ export default function Estimates() {
 
   const handleDownloadEstimatePDF = async () => {
     try {
-      const element = document.getElementById('estimate-pdf-content');
-      const canvas = await html2canvas(element, {
-        scale: 1.5,
-        useCORS: true,
-        logging: false
-      });
+      const scale = 1.5;
+      const opts = { scale, useCORS: true, logging: false };
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.85);
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const headerEl = document.getElementById('estimate-pdf-header');
+      const footerEl = document.getElementById('estimate-pdf-footer');
+      const fullEl   = document.getElementById('estimate-pdf-content');
 
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      const [headerCanvas, footerCanvas, fullCanvas] = await Promise.all([
+        html2canvas(headerEl, opts),
+        html2canvas(footerEl, opts),
+        html2canvas(fullEl,   opts),
+      ]);
+
+      const pdf      = new jsPDF('p', 'mm', 'a4');
+      const pageW    = pdf.internal.pageSize.getWidth();
+      const pageH    = pdf.internal.pageSize.getHeight();
+      const margin   = 6;
+
+      const headerH      = (headerCanvas.height * pageW) / headerCanvas.width;
+      const footerH      = (footerCanvas.height * pageW) / footerCanvas.width;
+      const contentAreaH = pageH - headerH - footerH - margin * 2;
+
+      const pxPerMm  = fullCanvas.width / pageW;
+      const sliceH_px = contentAreaH * pxPerMm;
+
+      const headerH_px = headerCanvas.height;
+      let   srcY       = headerH_px;
+      const fullH_px   = fullCanvas.height;
+
+      let page = 0;
+
+      while (srcY < fullH_px) {
+        if (page > 0) pdf.addPage();
+
+        pdf.addImage(headerCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, margin, pageW, headerH);
+
+        const sliceActual = Math.min(sliceH_px, fullH_px - srcY);
+        const sliceMm     = sliceActual / pxPerMm;
+
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width  = fullCanvas.width;
+        sliceCanvas.height = sliceActual;
+        sliceCanvas.getContext('2d').drawImage(fullCanvas, 0, srcY, fullCanvas.width, sliceActual, 0, 0, fullCanvas.width, sliceActual);
+
+        const contentY = margin + headerH + 2;
+        pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, contentY, pageW, sliceMm);
+
+        pdf.addImage(footerCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, pageH - footerH - margin, pageW, footerH);
+
+        srcY += sliceH_px;
+        page++;
+      }
+
       pdf.save(`Estimate-${selectedEstimate.estimate_number}.pdf`);
       toast.success('PDF downloaded successfully');
     } catch (error) {
+      console.error(error);
       toast.error('Failed to generate PDF');
     }
   };
@@ -1283,7 +1324,7 @@ export default function Estimates() {
               </DialogHeader>
               <div id="estimate-pdf-content" className="bg-white px-12 py-8">
                 {/* Header Section */}
-                <div className="relative mb-4 flex justify-between items-start">
+                <div id="estimate-pdf-header" className="relative mb-4 flex justify-between items-start">
                   {/* Left - Header Image (Logo and Contact Details) */}
                   <div>
                     <img
@@ -1412,7 +1453,7 @@ export default function Estimates() {
                 </div>
 
                 {/* Footer Section */}
-                <div className="space-y-1">
+                <div id="estimate-pdf-footer" className="space-y-1">
                   <p className="text-base">Thank you</p>
                   <p className="text-base">Your truly,</p>
                   <img

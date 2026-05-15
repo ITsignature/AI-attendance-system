@@ -245,22 +245,72 @@ export default function Invoices() {
 
   const handleDownloadInvoicePDF = async () => {
     try {
-      const element = document.getElementById('invoice-pdf-content');
-      const canvas = await html2canvas(element, {
-        scale: 1.5,
-        useCORS: true,
-        logging: false
-      });
+      const scale = 1.5;
+      const opts = { scale, useCORS: true, logging: false };
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.85);
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      const headerEl = document.getElementById('invoice-pdf-header');
+      const footerEl = document.getElementById('invoice-pdf-footer');
+      const fullEl   = document.getElementById('invoice-pdf-content');
 
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      const [headerCanvas, footerCanvas, fullCanvas] = await Promise.all([
+        html2canvas(headerEl, opts),
+        html2canvas(footerEl, opts),
+        html2canvas(fullEl,   opts),
+      ]);
+
+      const pdf      = new jsPDF('p', 'mm', 'a4');
+      const pageW    = pdf.internal.pageSize.getWidth();
+      const pageH    = pdf.internal.pageSize.getHeight();
+      const margin   = 6; // mm top/bottom margin
+
+      // Convert each canvas to mm heights
+      const headerH  = (headerCanvas.height * pageW) / headerCanvas.width;
+      const footerH  = (footerCanvas.height * pageW) / footerCanvas.width;
+      const fullH    = (fullCanvas.height   * pageW) / fullCanvas.width;
+
+      // Available content height per page (between header and footer)
+      const contentAreaH = pageH - headerH - footerH - margin * 2;
+
+      // How many px of the full canvas fit in one page's content area
+      const pxPerMm     = fullCanvas.width / pageW;
+      const sliceH_px   = contentAreaH * pxPerMm;
+
+      // Skip the header portion of the full canvas (it's redrawn separately)
+      const headerH_px  = (headerCanvas.height);
+      let   srcY        = headerH_px; // start slicing after header in full canvas
+      const fullH_px    = fullCanvas.height;
+
+      let page = 0;
+
+      while (srcY < fullH_px) {
+        if (page > 0) pdf.addPage();
+
+        // Draw header at top
+        pdf.addImage(headerCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, margin, pageW, headerH);
+
+        // Slice content
+        const sliceActual = Math.min(sliceH_px, fullH_px - srcY);
+        const sliceMm     = (sliceActual / pxPerMm);
+
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width  = fullCanvas.width;
+        sliceCanvas.height = sliceActual;
+        sliceCanvas.getContext('2d').drawImage(fullCanvas, 0, srcY, fullCanvas.width, sliceActual, 0, 0, fullCanvas.width, sliceActual);
+
+        const contentY = margin + headerH + 2;
+        pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, contentY, pageW, sliceMm);
+
+        // Draw footer at bottom
+        pdf.addImage(footerCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, pageH - footerH - margin, pageW, footerH);
+
+        srcY += sliceH_px;
+        page++;
+      }
+
       pdf.save(`Invoice-${selectedInvoice.invoice_number}.pdf`);
       toast.success('PDF downloaded successfully');
     } catch (error) {
+      console.error(error);
       toast.error('Failed to generate PDF');
     }
   };
@@ -771,9 +821,9 @@ export default function Invoices() {
         {/* View Invoice Dialog */}
         {selectedInvoice && (
           <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-4xl w-full max-h-[90vh] overflow-y-auto overflow-x-hidden">
               <DialogHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between pr-8">
                   <DialogTitle>Invoice Details</DialogTitle>
                   <Button
                     size="sm"
@@ -785,7 +835,29 @@ export default function Invoices() {
                   </Button>
                 </div>
               </DialogHeader>
-              <div id="invoice-pdf-content" className="space-y-4 p-4 bg-white">
+              <div id="invoice-pdf-content" className="space-y-4 px-6 py-8 bg-white">
+                {/* Header Section */}
+                <div id="invoice-pdf-header" className="mb-4 flex justify-between items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <img
+                      src="/estimate-header.jpg"
+                      alt="Invoice Header"
+                      className="h-auto w-full"
+                      style={{ maxWidth: '480px' }}
+                    />
+                  </div>
+                  <div className="border-2 border-green-600 rounded-lg p-3 bg-white shrink-0 min-w-[160px]">
+                    <div className="mb-2">
+                      <p className="text-xs font-semibold">Date:</p>
+                      <p className="text-sm">{selectedInvoice.invoice_date}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold">Invoice No:</p>
+                      <p className="text-sm">{selectedInvoice.invoice_number}</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Title */}
                 <div className="text-center border-b-2 pb-2 mb-4">
                   <h1 className="text-3xl font-bold">TAX INVOICE</h1>
@@ -802,7 +874,7 @@ export default function Invoices() {
                       </div>
                       <div>
                         <span className="font-bold text-xs text-gray-700">Supplier's Name:</span>
-                        <p className="text-sm font-semibold">{company?.name || 'N/A'}</p>
+                        <p className="text-sm font-semibold">Ekma Digital Solutions Pvt Ltd</p>
                       </div>
                       <div>
                         <span className="font-bold text-xs text-gray-700">Address:</span>
@@ -940,16 +1012,28 @@ export default function Invoices() {
                   </div>
                 )}
 
-                {/* Footer Note - Gazette Requirement */}
-                <div className="border-t pt-4 mt-4">
-                  <p className="text-xs text-gray-600 text-center italic">
+                {/* Footer Section */}
+                <div id="invoice-pdf-footer" className="mt-6 text-sm">
+                  <p className="text-xs text-gray-600 text-center italic mb-8">
                     This invoice must be retained for a period of five years as per VAT regulations.
                   </p>
-                  {company?.name && (
-                    <p className="text-xs text-gray-500 text-center mt-2">
-                      Generated by {company.name}
-                    </p>
-                  )}
+                  <p className="mb-2">
+                    An advance of 70% (Seventy Percent) is requested at the time of placing of the order. This quotation is valid for 30 Days.
+                  </p>
+                  <p className="mb-6">
+                    The online payment to be made to "<strong>Bank Name - NDB Bank | Acc.Name - Ekma Digital Solutions Pvt Ltd | Acc. Number- 101000707296 | Branch - Boralesgamuwa</strong>"
+                  </p>
+                  <div className="space-y-1">
+                    <p className="text-base">Thank you</p>
+                    <p className="text-base">Yours truly,</p>
+                    <img
+                      src="/signature.png"
+                      alt="Signature"
+                      className="h-16 w-auto my-2"
+                    />
+                    <p className="text-base font-semibold">S. G. Jamitha</p>
+                    <p className="text-base">Ekma Digital Solutions (Private) Limited.</p>
+                  </div>
                 </div>
               </div>
             </DialogContent>
