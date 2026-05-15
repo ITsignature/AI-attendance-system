@@ -2983,10 +2983,11 @@ async def create_estimate(estimate_data: dict, current_user: User = Depends(get_
         production_notes=estimate_data.get("production_notes"),
         bank_account=estimate_data.get("bank_account", "ndb"),
         display_total_amounts=estimate_data.get("display_total_amounts", True),
+        display_grand_total=estimate_data.get("display_grand_total", True),
         created_by=current_user.id,
         created_by_name=current_user.name
     )
-    
+
     await db.estimates.insert_one(estimate.model_dump())
     await log_activity(current_user.company_id, current_user.id, current_user.name, "CREATE_ESTIMATE", f"Created estimate: {estimate_number}")
     
@@ -3185,7 +3186,8 @@ async def update_estimate(estimate_id: str, estimate_data: dict, current_user: U
         "notes": estimate_data.get("notes", estimate.get("notes")),
         "production_notes": estimate_data.get("production_notes", estimate.get("production_notes")),
         "bank_account": estimate_data.get("bank_account", estimate.get("bank_account", "ndb")),
-        "display_total_amounts": estimate_data.get("display_total_amounts", estimate.get("display_total_amounts", True))
+        "display_total_amounts": estimate_data.get("display_total_amounts", estimate.get("display_total_amounts", True)),
+        "display_grand_total": estimate_data.get("display_grand_total", estimate.get("display_grand_total", True))
     }
 
     await db.estimates.update_one(
@@ -3319,6 +3321,7 @@ async def duplicate_estimate(estimate_id: str, current_user: User = Depends(get_
         subject=original.get("subject"),
         notes=original.get("notes"),
         display_total_amounts=original.get("display_total_amounts", True),
+        display_grand_total=original.get("display_grand_total", True),
         created_by=current_user.id,
         created_by_name=current_user.name
     )

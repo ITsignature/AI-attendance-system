@@ -185,12 +185,14 @@ export default function PublicEstimateView() {
                   </tr>
                 )}
                 {/* Total Row */}
-                <tr className="bg-white">
-                  <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
-                  <td className="border border-black text-right p-3 font-bold">
-                    {estimate.display_total_amounts !== false ? `Rs.${fmt(estimate.total)}` : ''}
-                  </td>
-                </tr>
+                {estimate.display_grand_total !== false && (
+                  <tr className="bg-white">
+                    <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
+                    <td className="border border-black text-right p-3 font-bold">
+                      {estimate.display_total_amounts !== false ? `Rs.${fmt(estimate.total)}` : ''}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
