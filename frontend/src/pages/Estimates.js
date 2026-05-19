@@ -403,6 +403,12 @@ export default function Estimates() {
         .map(y => Math.round(y * scaleY) - contentStartPx)
         .filter(bp => bp > 0 && bp < contentHeightPx);
 
+      // Pagination ends at the last row's bottom — this prevents the mb-6 margin
+      // on the table wrapper from creating a near-empty extra page with just a border line.
+      const effectiveContentEnd = rowBreaksPx.length > 0
+        ? rowBreaksPx[rowBreaksPx.length - 1]
+        : contentHeightPx;
+
       // ── Step 3: PDF constants ─────────────────────────────────────────────
       const pdf          = new jsPDF('p', 'mm', 'a4');
       const pdfWidth     = pdf.internal.pageSize.getWidth();
@@ -420,7 +426,7 @@ export default function Estimates() {
       const slices = [];
       let cur = 0;
 
-      while (cur < contentHeightPx) {
+      while (cur < effectiveContentEnd) {
         const isFirst   = slices.length === 0;
         const topPad    = isFirst ? 0 : breakMarginPx;
         const hPx       = isFirst ? headerBottomPx : Math.round(headerBottomPx * headerScale2);
@@ -428,8 +434,8 @@ export default function Estimates() {
         const maxContent = fullPagePx - fixedPx - topPad - breakMarginPx;
         const maxLast    = fullPagePx - fixedPx - topPad;
 
-        if (cur + maxLast >= contentHeightPx) {
-          slices.push({ start: cur, end: contentHeightPx, topPad, bottomPad: 0, hPx });
+        if (cur + maxLast >= effectiveContentEnd) {
+          slices.push({ start: cur, end: effectiveContentEnd, topPad, bottomPad: 0, hPx });
           break;
         }
 
