@@ -9,9 +9,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2 } from 'lucide-react';
+import { Plus, FileText, ArrowRight, Trash2, Archive, Eye, Download, Pencil, Check, X, Send, Copy, Link2, ArrowUpDown, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+function SortableItem({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      {...attributes}
+    >
+      {children(listeners)}
+    </div>
+  );
+}
 
 export default function Estimates() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -25,6 +41,7 @@ export default function Estimates() {
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortByCustomer, setSortByCustomer] = useState('none'); // 'none' | 'asc' | 'desc'
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [editingEstimate, setEditingEstimate] = useState(null);
@@ -57,9 +74,10 @@ export default function Estimates() {
     production_notes: '',
     bank_account: 'ndb',
     display_total_amounts: true,
+    display_grand_total: true,
     discount: 0,
     discount_type: 'amount',
-    items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
+    items: [{ _uid: crypto.randomUUID(), product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
   });
 
   useEffect(() => {
@@ -227,9 +245,11 @@ export default function Estimates() {
       production_notes: estimate.production_notes || '',
       bank_account: estimate.bank_account || 'ndb',
       display_total_amounts: estimate.display_total_amounts !== undefined ? estimate.display_total_amounts : true,
+      display_grand_total: estimate.display_grand_total !== undefined ? estimate.display_grand_total : true,
       discount: estimate.discount || 0,
       discount_type: estimate.discount_type || 'amount',
       items: estimate.items.map(item => ({
+        _uid: item._uid || crypto.randomUUID(),
         product_id: item.product_id || '',
         product_name: item.product_name,
         description: item.description || '',
@@ -256,9 +276,10 @@ export default function Estimates() {
       production_notes: '',
       bank_account: 'ndb',
       display_total_amounts: true,
+      display_grand_total: true,
       discount: 0,
       discount_type: 'amount',
-      items: [{ product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
+      items: [{ _uid: crypto.randomUUID(), product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: '', unit_price: '', display_amounts: true, offcut_size: '', offcut_rate: 0 }]
     });
     setEditingEstimate(null);
   };
@@ -310,65 +331,176 @@ export default function Estimates() {
   };
 
   const handleDownloadEstimatePDF = async () => {
+    const element = document.getElementById('estimate-pdf-content');
+
+    // Remove scroll/height constraints on all scrollable ancestors so
+    // html2canvas captures the full content, not just the visible scroll area
+    const constrained = [];
+    let node = element.parentElement;
+    while (node && node !== document.body) {
+      const cs = window.getComputedStyle(node);
+      if (cs.overflowY === 'auto' || cs.overflowY === 'scroll' || cs.maxHeight !== 'none') {
+        constrained.push({ el: node, overflowY: node.style.overflowY, maxHeight: node.style.maxHeight });
+        node.style.overflowY = 'visible';
+        node.style.maxHeight = 'none';
+      }
+      node = node.parentElement;
+    }
+
     try {
-      const scale = 1.5;
-      const opts = { scale, useCORS: true, logging: false };
+      // ── Step 1: measure DOM positions BEFORE html2canvas ─────────────────
+      const elementRect = element.getBoundingClientRect();
+      const relTop    = (el) => el.getBoundingClientRect().top    - elementRect.top;
+      const relBottom = (el) => el.getBoundingClientRect().bottom - elementRect.top;
 
-      const headerEl = document.getElementById('estimate-pdf-header');
-      const footerEl = document.getElementById('estimate-pdf-footer');
-      const fullEl   = document.getElementById('estimate-pdf-content');
+      // Header = first child div (logo + date box section)
+      const headerEl        = element.firstElementChild;
+      const headerBottomCss = relBottom(headerEl);
 
-      const [headerCanvas, footerCanvas, fullCanvas] = await Promise.all([
-        html2canvas(headerEl, opts),
-        html2canvas(footerEl, opts),
-        html2canvas(fullEl,   opts),
-      ]);
+      // Date/quotation box = right child of header — hidden on pages 2+
+      const dateBoxEl = headerEl ? headerEl.lastElementChild : null;
+      const dateBoxRect = dateBoxEl ? dateBoxEl.getBoundingClientRect() : null;
+      const dateBoxCss = dateBoxRect ? {
+        left:   dateBoxRect.left   - elementRect.left,
+        top:    dateBoxRect.top    - elementRect.top,
+        width:  dateBoxRect.width,
+        height: dateBoxRect.height,
+      } : null;
 
-      const pdf      = new jsPDF('p', 'mm', 'a4');
-      const pageW    = pdf.internal.pageSize.getWidth();
-      const pageH    = pdf.internal.pageSize.getHeight();
-      const margin   = 6;
+      // Footer = everything after the table (notes + terms + signature)
+      const table        = element.querySelector('table');
+      const afterTableEl = table ? table.parentElement.nextElementSibling : null;
+      const footerTopCss = afterTableEl ? relTop(afterTableEl) : elementRect.height;
 
-      const headerH      = (headerCanvas.height * pageW) / headerCanvas.width;
-      const footerH      = (footerCanvas.height * pageW) / footerCanvas.width;
-      const contentAreaH = pageH - headerH - footerH - margin * 2;
+      // Table rows for break-point detection
+      const tableRows     = Array.from(element.querySelectorAll('table tr'));
+      const rowBottomsCss = tableRows.map(row => relBottom(row));
 
-      const pxPerMm  = fullCanvas.width / pageW;
-      const sliceH_px = contentAreaH * pxPerMm;
+      // ── Step 2: capture full canvas ───────────────────────────────────────
+      const canvas = await html2canvas(element, { scale: 1.5, useCORS: true, logging: false });
 
-      const headerH_px = headerCanvas.height;
-      let   srcY       = headerH_px;
-      const fullH_px   = fullCanvas.height;
+      const scaleY  = canvas.height / elementRect.height;
+      const scaleX  = canvas.width  / elementRect.width;
+      const pxPerMm = canvas.width  / 210;
 
-      let page = 0;
+      // Date box in canvas pixels (used to white it out on pages 2+)
+      const dateBoxPx = dateBoxCss ? {
+        left:   Math.floor(dateBoxCss.left   * scaleX),
+        top:    Math.floor(dateBoxCss.top    * scaleY),
+        width:  Math.ceil (dateBoxCss.width  * scaleX) + 4,
+        height: Math.ceil (dateBoxCss.height * scaleY) + 4,
+      } : null;
 
-      while (srcY < fullH_px) {
-        if (page > 0) pdf.addPage();
+      // Convert CSS → canvas pixels
+      const headerBottomPx  = Math.round(headerBottomCss * scaleY);
+      const footerTopPx     = Math.round(footerTopCss    * scaleY);
+      const footerHeightPx  = canvas.height - footerTopPx;
+      const contentStartPx  = headerBottomPx;
+      const contentHeightPx = footerTopPx - contentStartPx;
 
-        pdf.addImage(headerCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, margin, pageW, headerH);
+      // Row breaks relative to content start
+      const rowBreaksPx = rowBottomsCss
+        .map(y => Math.round(y * scaleY) - contentStartPx)
+        .filter(bp => bp > 0 && bp < contentHeightPx);
 
-        const sliceActual = Math.min(sliceH_px, fullH_px - srcY);
-        const sliceMm     = sliceActual / pxPerMm;
+      // ── Step 3: PDF constants ─────────────────────────────────────────────
+      const pdf          = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth     = pdf.internal.pageSize.getWidth();
+      const pageHeightMm = pdf.internal.pageSize.getHeight();
 
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width  = fullCanvas.width;
-        sliceCanvas.height = sliceActual;
-        sliceCanvas.getContext('2d').drawImage(fullCanvas, 0, srcY, fullCanvas.width, sliceActual, 0, 0, fullCanvas.width, sliceActual);
+      const breakMarginPx = Math.round(5 * pxPerMm); // 5 mm at each break edge
+      const fullPagePx    = Math.round(pageHeightMm * pxPerMm);
+      // On pages 2+ the header is drawn at 85% height to save vertical space,
+      // keeping the logo readable while fitting more content per page
+      const headerScale2  = 0.85;
 
-        const contentY = margin + headerH + 2;
-        pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, contentY, pageW, sliceMm);
+      // ── Step 4: paginate content region ───────────────────────────────────
+      // Each slice stores the actual header height used on that page so the
+      // renderer and the pagination both agree on available space.
+      const slices = [];
+      let cur = 0;
 
-        pdf.addImage(footerCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, pageH - footerH - margin, pageW, footerH);
+      while (cur < contentHeightPx) {
+        const isFirst   = slices.length === 0;
+        const topPad    = isFirst ? 0 : breakMarginPx;
+        const hPx       = isFirst ? headerBottomPx : Math.round(headerBottomPx * headerScale2);
+        const fixedPx   = hPx + footerHeightPx;
+        const maxContent = fullPagePx - fixedPx - topPad - breakMarginPx;
+        const maxLast    = fullPagePx - fixedPx - topPad;
 
-        srcY += sliceH_px;
-        page++;
+        if (cur + maxLast >= contentHeightPx) {
+          slices.push({ start: cur, end: contentHeightPx, topPad, bottomPad: 0, hPx });
+          break;
+        }
+
+        const ideal   = cur + Math.max(maxContent, 1);
+        const valid   = rowBreaksPx.filter(bp => bp > cur && bp <= ideal);
+        const breakAt = valid.length > 0 ? valid[valid.length - 1] : Math.max(ideal, cur + 1);
+
+        slices.push({ start: cur, end: breakAt, topPad, bottomPad: breakMarginPx, hPx });
+        cur = breakAt;
+      }
+
+      // ── Step 5: render each page ──────────────────────────────────────────
+      const borderOverlapPx = 3;
+
+      for (let i = 0; i < slices.length; i++) {
+        const { start, end, topPad, bottomPad, hPx } = slices[i];
+        const overlap  = i > 0 ? Math.min(borderOverlapPx, start) : 0;
+        const adjStart = start - overlap;
+        const sliceH   = end - adjStart;
+        if (sliceH <= 0) continue;
+
+        const pageH      = hPx + topPad + sliceH + bottomPad + footerHeightPx;
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width  = canvas.width;
+        pageCanvas.height = pageH;
+
+        const ctx = pageCanvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, pageH);
+
+        // 1. Header — source is always full size; destination height is hPx
+        //    (scaled down to 85% on pages 2+ to save vertical space)
+        ctx.drawImage(canvas, 0, 0,
+                      canvas.width, headerBottomPx,
+                      0, 0, canvas.width, hPx);
+
+        // On pages 2+, white out the date/quotation box; also scale its Y position
+        if (i > 0 && dateBoxPx) {
+          const yScale = hPx / headerBottomPx;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(
+            dateBoxPx.left,
+            Math.floor(dateBoxPx.top  * yScale),
+            dateBoxPx.width,
+            Math.ceil (dateBoxPx.height * yScale) + 4
+          );
+        }
+
+        // 2. Content slice — placed after the (scaled) header + top break gap
+        ctx.drawImage(canvas, 0, contentStartPx + adjStart,
+                      canvas.width, sliceH,
+                      0, hPx + topPad, canvas.width, sliceH);
+
+        // 3. Footer — placed after content + bottom break gap
+        ctx.drawImage(canvas, 0, footerTopPx,
+                      canvas.width, footerHeightPx,
+                      0, hPx + topPad + sliceH + bottomPad, canvas.width, footerHeightPx);
+
+        if (i > 0) pdf.addPage();
+        pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pdfWidth, pageH / pxPerMm);
       }
 
       pdf.save(`Estimate-${selectedEstimate.estimate_number}.pdf`);
       toast.success('PDF downloaded successfully');
     } catch (error) {
-      console.error(error);
       toast.error('Failed to generate PDF');
+    } finally {
+      constrained.forEach(({ el, overflowY, maxHeight }) => {
+        el.style.overflowY = overflowY;
+        el.style.maxHeight = maxHeight;
+      });
     }
   };
 
@@ -411,10 +543,21 @@ export default function Estimates() {
     }
   };
 
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = estimateForm.items.findIndex(i => i._uid === active.id);
+      const newIndex = estimateForm.items.findIndex(i => i._uid === over.id);
+      setEstimateForm({ ...estimateForm, items: arrayMove(estimateForm.items, oldIndex, newIndex) });
+    }
+  };
+
   const addEstimateItem = () => {
     setEstimateForm({
       ...estimateForm,
-      items: [...estimateForm.items, { product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: 1, unit_price: 0, display_amounts: true, offcut_size: '', offcut_rate: 0 }]
+      items: [...estimateForm.items, { _uid: crypto.randomUUID(), product_id: '', product_name: '', description: '', category_id: '', size: '', unit: 'pcs', quantity: 1, unit_price: 0, display_amounts: true, offcut_size: '', offcut_rate: 0 }]
     });
   };
 
@@ -485,9 +628,19 @@ export default function Estimates() {
     }
   };
 
-  const filteredEstimates = estimates.filter(estimate =>
-    estimate.estimate_number.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEstimates = estimates
+    .filter(estimate => {
+      const term = searchTerm.toLowerCase();
+      const customer = customers.find(c => c.id === estimate.customer_id);
+      const customerName = (customer?.name || '').toLowerCase();
+      return estimate.estimate_number.toLowerCase().includes(term) || customerName.includes(term);
+    })
+    .sort((a, b) => {
+      if (sortByCustomer === 'none') return 0;
+      const nameA = (customers.find(c => c.id === a.customer_id)?.name || '').toLowerCase();
+      const nameB = (customers.find(c => c.id === b.customer_id)?.name || '').toLowerCase();
+      return sortByCustomer === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+    });
 
   const getCustomerName = (customerId) => {
     const customer = customers.find(c => c.id === customerId);
@@ -538,13 +691,23 @@ export default function Estimates() {
         </div>
 
         {estimates.length >= 5 && (
-          <div>
+          <div className="flex items-center gap-2">
             <Input
-              placeholder="Search by estimate number..."
+              placeholder="Search by estimate number or customer name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-md"
             />
+            <Button
+              variant={sortByCustomer !== 'none' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSortByCustomer(prev => prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none')}
+              title={sortByCustomer === 'asc' ? 'Sorted A–Z (click for Z–A)' : sortByCustomer === 'desc' ? 'Sorted Z–A (click to reset)' : 'Sort by customer name'}
+              className="flex items-center gap-1 whitespace-nowrap"
+            >
+              {sortByCustomer === 'asc' ? <ArrowUp className="w-4 h-4" /> : sortByCustomer === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4" />}
+              {sortByCustomer === 'asc' ? 'Customer A–Z' : sortByCustomer === 'desc' ? 'Customer Z–A' : 'Sort by Customer'}
+            </Button>
           </div>
         )}
 
@@ -834,157 +997,130 @@ export default function Estimates() {
 
                 {/* Column Headers */}
                 <div className="grid grid-cols-12 gap-2 mb-2 px-1">
+                  <div className="col-span-1"></div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Product</div>
-                  <div className="col-span-3 text-xs font-semibold text-gray-600">Name</div>
-                  {/* <div className="col-span-1 text-xs font-semibold text-gray-600">Category</div> */}
+                  <div className="col-span-2 text-xs font-semibold text-gray-600">Name</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600">Size</div>
-                  {/* <div className="col-span-1 text-xs font-semibold text-gray-600">Unit</div> */}
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Qty</div>
                   <div className="col-span-2 text-xs font-semibold text-gray-600">Price</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Total</div>
                   <div className="col-span-1 text-xs font-semibold text-gray-600 text-center">Add</div>
-                  <div className="col-span-1"></div>
                 </div>
 
-                {estimateForm.items.map((item, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 mb-3 items-center">
-                    <div className="col-span-2">
-                      <Select
-                        value={item.product_id || "custom"}
-                        onValueChange={(value) => updateEstimateItem(index, 'product_id', value === "custom" ? "" : value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="custom">Custom Item</SelectItem>
-                          {products.map(product => (
-                            <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="col-span-3">
-                      <Textarea
-                        value={item.product_name}
-                        onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
-                        placeholder="Name *"
-                        required
-                        rows={1}
-                        className="min-h-0 resize"
-                      />
-                    </div>
-                    {/* <div className="col-span-1">
-                      <Select
-                        value={item.category_id || "none"}
-                        onValueChange={(value) => updateEstimateItem(index, 'category_id', value === "none" ? "" : value)}
-                        disabled={item.product_id && item.product_id !== ""}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {categories.map(category => (
-                            <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div> */}
-                    <div className="col-span-1">
-                      <Input
-                        value={item.size}
-                        onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
-                        placeholder="Size"
-                      />
-                      {item.unit === 'sqft' && (
-                        <Input
-                          value={item.offcut_size}
-                          onChange={(e) => updateEstimateItem(index, 'offcut_size', e.target.value)}
-                          placeholder="Offcut Size"
-                          className="mt-1 text-xs"
-                        />
-                      )}
-                    </div>
-                    {/* <div className="col-span-1">
-                      <Select
-                        value={item.unit || "pcs"}
-                        onValueChange={(value) => updateEstimateItem(index, 'unit', value)}
-                        disabled={item.product_id && item.product_id !== ""}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pcs">Pieces</SelectItem>
-                          <SelectItem value="kg">Kilograms</SelectItem>
-                          <SelectItem value="hrs">Hours</SelectItem>
-                          <SelectItem value="box">Box</SelectItem>
-                          <SelectItem value="set">Set</SelectItem>
-                          <SelectItem value="sqft">per sq.ft.</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div> */}
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        step="1"
-                        min="1"
-                        value={item.quantity}
-                        onChange={(e) => updateEstimateItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                        placeholder="Qty *"
-                        required
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={item.unit_price}
-                        onChange={(e) => updateEstimateItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                        placeholder="Price *"
-                        required
-                      />
-                    </div>
-                    <div className="col-span-1">
-                      <p className="text-sm font-semibold text-center">Rs {fmt(getItemTotal(item))}</p>
-                    </div>
-                    <div className="col-span-1 flex items-center justify-center">
-                      <input
-                        type="checkbox"
-                        checked={item.display_amounts !== false}
-                        onChange={(e) => updateEstimateItem(index, 'display_amounts', e.target.checked)}
-                        className="w-4 h-4 cursor-pointer"
-                        title="Include this item's total in grand total"
-                      />
-                    </div>
-                    <div className="col-span-1 flex gap-1">
-                      {!item.product_id && item.product_name && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="text-green-600"
-                          onClick={() => handleAddItemToProducts(item)}
-                          title="Add to Products"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {estimateForm.items.length > 1 && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600"
-                          onClick={() => removeEstimateItem(index)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={estimateForm.items.map(i => i._uid)} strategy={verticalListSortingStrategy}>
+                    {estimateForm.items.map((item, index) => (
+                      <SortableItem key={item._uid} id={item._uid}>
+                        {(dragListeners) => (
+                          <div className="grid grid-cols-12 gap-2 mb-3 items-center">
+                            <div className="col-span-1 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600" {...dragListeners}>
+                              <GripVertical className="w-4 h-4" />
+                            </div>
+                            <div className="col-span-2">
+                              <Select
+                                value={item.product_id || "custom"}
+                                onValueChange={(value) => updateEstimateItem(index, 'product_id', value === "custom" ? "" : value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Product" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="custom">Custom Item</SelectItem>
+                                  {products.map(product => (
+                                    <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-2">
+                              <Textarea
+                                value={item.product_name}
+                                onChange={(e) => updateEstimateItem(index, 'product_name', e.target.value)}
+                                placeholder="Name *"
+                                required
+                                rows={1}
+                                className="min-h-0 resize"
+                              />
+                            </div>
+                            <div className="col-span-1">
+                              <Input
+                                value={item.size}
+                                onChange={(e) => updateEstimateItem(index, 'size', e.target.value)}
+                                placeholder="Size"
+                              />
+                              {item.unit === 'sqft' && (
+                                <Input
+                                  value={item.offcut_size}
+                                  onChange={(e) => updateEstimateItem(index, 'offcut_size', e.target.value)}
+                                  placeholder="Offcut Size"
+                                  className="mt-1 text-xs"
+                                />
+                              )}
+                            </div>
+                            <div className="col-span-2">
+                              <Input
+                                type="number"
+                                step="1"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => updateEstimateItem(index, 'quantity', parseInt(e.target.value) || 0)}
+                                placeholder="Qty *"
+                                required
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.unit_price}
+                                onChange={(e) => updateEstimateItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                                placeholder="Price *"
+                                required
+                              />
+                            </div>
+                            <div className="col-span-1">
+                              <p className="text-sm font-semibold text-center">Rs {fmt(getItemTotal(item))}</p>
+                            </div>
+                            <div className="col-span-1 flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={item.display_amounts !== false}
+                                onChange={(e) => updateEstimateItem(index, 'display_amounts', e.target.checked)}
+                                className="w-4 h-4 cursor-pointer"
+                                title="Include this item's total in grand total"
+                              />
+                            </div>
+                            <div className="col-span-1 flex gap-1">
+                              {!item.product_id && item.product_name && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-green-600"
+                                  onClick={() => handleAddItemToProducts(item)}
+                                  title="Add to Products"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </Button>
+                              )}
+                              {estimateForm.items.length > 1 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-red-600"
+                                  onClick={() => removeEstimateItem(index)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </SortableItem>
+                    ))}
+                  </SortableContext>
+                </DndContext>
 
                 <div className="border-t pt-3 mt-3">
                   <div className="flex justify-end">
@@ -1106,6 +1242,19 @@ export default function Estimates() {
                 />
                 <label htmlFor="display-total-amounts" className="text-sm font-medium cursor-pointer">
                   Display Total Amounts (uncheck to hide all unit prices and totals in estimate view)
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                <input
+                  type="checkbox"
+                  id="display-grand-total"
+                  checked={estimateForm.display_grand_total !== false}
+                  onChange={(e) => setEstimateForm({ ...estimateForm, display_grand_total: e.target.checked })}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="display-grand-total" className="text-sm font-medium cursor-pointer">
+                  Display Grand Total (uncheck to hide the grand total row in estimate view)
                 </label>
               </div>
 
@@ -1324,7 +1473,7 @@ export default function Estimates() {
               </DialogHeader>
               <div id="estimate-pdf-content" className="bg-white px-12 py-8">
                 {/* Header Section */}
-                <div id="estimate-pdf-header" className="relative mb-4 flex justify-between items-start">
+                <div className="relative mb-4 flex justify-between items-start">
                   {/* Left - Header Image (Logo and Contact Details) */}
                   <div>
                     <img
@@ -1419,12 +1568,14 @@ export default function Estimates() {
                         </tr>
                       )}
                       {/* Total Row */}
-                      <tr className="bg-white">
-                        <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
-                        <td className="border border-black text-right p-3 font-bold">
-                          {selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(selectedEstimate.total)}` : ''}
-                        </td>
-                      </tr>
+                      {selectedEstimate.display_grand_total !== false && (
+                        <tr className="bg-white">
+                          <td colSpan="4" className="border border-black text-right p-3 font-bold">Total</td>
+                          <td className="border border-black text-right p-3 font-bold">
+                            {selectedEstimate.display_total_amounts !== false ? `Rs.${fmt(selectedEstimate.total)}` : ''}
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1453,7 +1604,7 @@ export default function Estimates() {
                 </div>
 
                 {/* Footer Section */}
-                <div id="estimate-pdf-footer" className="space-y-1">
+                <div className="space-y-1">
                   <p className="text-base">Thank you</p>
                   <p className="text-base">Your truly,</p>
                   <img
